@@ -1,17 +1,27 @@
 """
 Bridge entre el backend FastAPI y el paquete scraping.
-Ejecuta los adapters reales y convierte NormalizedMatch → Match (modelo backend).
+Ejecuta los adapters reales y convierte NormalizedMatch -> Match (modelo backend).
 Deportes activos en tiempo real: football, tennis, basketball, rugby, hockey.
 """
+
 import sys
 import os
 import logging
 from pathlib import Path
 
 # Asegurar que el paquete scraping sea importable desde el backend
-_ROOT = Path(__file__).resolve().parents[3]  # raíz del proyecto
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+_CANDIDATE_SCRAPING_DIRS = [
+    _BACKEND_ROOT.parent / "scraping",
+    _BACKEND_ROOT / "scraping",
+    Path("/app/scraping"),
+]
+
+_SCRAPING_DIR = next((p for p in _CANDIDATE_SCRAPING_DIRS if p.exists()), None)
+
+if _SCRAPING_DIR and str(_SCRAPING_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRAPING_DIR))
 
 from app.models.match import Match
 
@@ -66,7 +76,7 @@ async def _run(
 
 
 def _to_match(nm) -> Match:
-    """Convierte NormalizedMatch → Match (modelo Pydantic del backend)."""
+    """Convierte NormalizedMatch -> Match (modelo Pydantic del backend)."""
     return Match(
         id=nm.id,
         sport=nm.sport,
