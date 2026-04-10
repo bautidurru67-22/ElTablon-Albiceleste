@@ -1,0 +1,30 @@
+.btn, .btnGuest {
+  display: inline-block;
+  font-family: var(--font-condensed), sans-serif;
+  font-size: 12px; font-weight: 700; letter-spacing: .5px;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer;
+  transition: all .15s; white-space: nowrap; text-align: center;
+}
+
+.btnGuest {
+  background: transparent;
+  border: 0.5px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+.btnGuest:hover { border-color: var(--color-sky); color: var(--color-primary); }
+
+.notFollowing {
+  background: var(--color-primary);
+  border: 0.5px solid var(--color-primary);
+  color: #fff;
+}
+.notFollowing:hover { background: var(--color-primary-dark); }
+.notFollowing:disabled { opacity: .6; cursor: not-allowed; }
+
+.following {
+  background: #e8f4ec;
+  border: 0.5px solid #6bbf7a;
+  color: #1a6b35;
+}
+.following:hover { background: #fce8e8; border-color: var(--color-live); color: var(--color-live); }
+.following:disabled { opacity: .6; cursor: not-allowed; }

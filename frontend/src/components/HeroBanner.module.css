@@ -1,0 +1,60 @@
+.wrapper {
+  width: 100%;
+}
+
+.banner {
+  position: relative;
+  background: #f0f8ff;
+  overflow: hidden;
+  padding: 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+}
+
+/* Franjas estilo bandera argentina */
+.stripeLight,
+.stripeBlue {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 15px;
+}
+
+.stripeLight:first-child { top: 0; background: #74b9e8; opacity: 0.35; }
+.stripeBlue             { top: 15px; background: #74b9e8; opacity: 0.15; }
+.stripeLight:last-of-type { bottom: 0; background: #74b9e8; opacity: 0.35; }
+
+.content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 0 16px;
+}
+
+.claim {
+  font-family: var(--font-condensed), sans-serif;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #0d3260;
+  margin: 0;
+}
+
+/* Slot publicitario: reserva espacio pero invisible hasta activar */
+.adSlot {
+  width: 100%;
+  min-height: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* Activar cuando haya anunciante:
+  min-height: 90px;
+  background: #f5f5f5;
+  border-top: 1px solid var(--color-border);
+  */
+}

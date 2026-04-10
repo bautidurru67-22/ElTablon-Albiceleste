@@ -1,0 +1,67 @@
+.page { width: 100%; }
+
+.pageHeader {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px;
+}
+.pageTitle {
+  font-family: var(--font-condensed), sans-serif; font-size: 18px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 1px; color: var(--color-primary-dark);
+}
+.pageDate { font-size: 12px; color: var(--color-text-muted); text-transform: capitalize; }
+
+.layout { display: grid; grid-template-columns: 1fr 210px; gap: 16px; align-items: start; }
+.main { min-width: 0; }
+.section { margin-bottom: 16px; }
+.sidebar { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.sportHeader {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.sportTitle {
+  font-family: var(--font-condensed), sans-serif; font-size: 14px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px; color: var(--color-primary-dark);
+}
+.sportCount { font-size: 11px; color: var(--color-text-muted); margin-left: auto; }
+
+.sideCard {
+  background: #fff; border: 0.5px solid var(--color-border);
+  border-radius: 6px; padding: 10px 12px;
+}
+
+.statRow {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; border-bottom: 0.5px solid var(--color-border); font-size: 12px;
+}
+.statRow:last-child { border-bottom: none; }
+.statLabel { color: var(--color-text-muted); }
+.statVal { font-family: var(--font-condensed), sans-serif; font-weight: 700; font-size: 14px; color: var(--color-primary-dark); }
+
+.sportRow {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; border-bottom: 0.5px solid var(--color-border); font-size: 12px;
+}
+.sportRow:last-child { border-bottom: none; }
+.sportRowName { color: var(--color-text); }
+.sportRowCount { font-family: var(--font-condensed), sans-serif; font-weight: 700; color: var(--color-primary-dark); }
+
+.scoreRow { padding: 5px 0; border-bottom: 0.5px solid var(--color-border); }
+.scoreRow:last-child { border-bottom: none; }
+.scoreTeams { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.scoreTeams span:first-child, .scoreTeams span:last-child { flex: 1; }
+.scoreTeams span:last-child { text-align: right; }
+.scoreLine {
+  font-family: var(--font-condensed), sans-serif; font-weight: 800; font-size: 14px;
+  color: #0d3260; background: #e8eef7; padding: 1px 6px; border-radius: 3px;
+  flex-shrink: 0;
+}
+.scoreWinner { font-weight: 700; }
+.scoreComp { display: block; font-size: 10px; color: var(--color-text-muted); margin-top: 1px; }
+
+.empty { padding: 24px 0; text-align: center; color: var(--color-text-muted); font-size: 13px; }
+.emptyHint { font-size: 11px; margin-top: 4px; }
+
+@media (max-width: 700px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+}

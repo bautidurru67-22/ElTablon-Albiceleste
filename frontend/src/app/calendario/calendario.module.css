@@ -1,0 +1,60 @@
+.page { width: 100%; }
+
+.pageHeader { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.pageTitle { font-family: var(--font-condensed),sans-serif; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--color-primary-dark); }
+.tz { font-size: 11px; color: var(--color-text-muted); }
+
+.daySelector {
+  display: flex; align-items: center; gap: 12px;
+  background: #fff; border: 0.5px solid var(--color-border);
+  border-radius: 6px; padding: 8px 12px; margin-bottom: 14px;
+}
+.daySelectorLabel { font-size: 11px; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.days { display: flex; gap: 4px; }
+.day {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer;
+  border: 0.5px solid var(--color-border);
+}
+.day:hover { border-color: var(--color-sky); }
+.dayActive { background: var(--color-primary); border-color: var(--color-primary); }
+.dayActive .dayLabel, .dayActive .dayNum { color: #fff; }
+.dayLabel { font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--color-text-muted); }
+.dayNum { font-family: var(--font-condensed),sans-serif; font-size: 15px; font-weight: 700; color: var(--color-primary-dark); }
+
+.layout { display: grid; grid-template-columns: 1fr 210px; gap: 16px; align-items: start; }
+.main { min-width: 0; }
+.section { margin-bottom: 14px; }
+.sidebar { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.featuredGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.featuredCard {
+  background: #fff; border: 0.5px solid var(--color-border);
+  border-radius: 6px; padding: 8px 10px;
+}
+.featuredComp { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--color-text-muted); margin-bottom: 4px; }
+.featuredTeams { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; font-weight: 600; }
+.featuredScore { font-family: var(--font-condensed),sans-serif; font-weight: 800; font-size: 18px; color: #0d3260; padding: 0 4px; }
+.featuredVs { font-size: 11px; color: var(--color-text-muted); padding: 0 4px; }
+.featuredMeta { display: flex; justify-content: space-between; margin-top: 4px; }
+.liveTag { font-size: 10px; color: var(--color-live); font-weight: 700; }
+.bcast { font-size: 10px; color: var(--color-text-muted); }
+
+.matchList { background: #fff; border: 0.5px solid var(--color-border); border-radius: 6px; overflow: hidden; }
+
+.sideCard { background: #fff; border: 0.5px solid var(--color-border); border-radius: 6px; padding: 10px 12px; }
+
+.sportFilters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.sportFilter {
+  font-size: 11px; font-weight: 600; padding: 2px 8px;
+  border: 0.5px solid var(--color-border); border-radius: 3px;
+  cursor: pointer; color: var(--color-text-muted);
+}
+.sportFilter:hover { border-color: var(--color-sky); color: var(--color-primary); }
+.sportFilterActive { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+
+.histItem { display: flex; gap: 6px; font-size: 11px; padding: 4px 0; border-bottom: 0.5px solid var(--color-border); }
+.histItem:last-of-type { border-bottom: none; }
+.histBullet { color: var(--color-sky); flex-shrink: 0; }
+.placeholder { font-size: 11px; color: var(--color-text-muted); padding: 6px 0; }
+.empty { font-size: 12px; color: var(--color-text-muted); padding: 12px 0; }

@@ -1,0 +1,72 @@
+.page { width: 100%; }
+
+.clubHeader {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: #fff; border: 0.5px solid var(--color-border);
+  border-radius: 6px; padding: 14px 16px; margin-bottom: 16px;
+}
+.clubAvatar {
+  width: 48px; height: 48px; border-radius: 8px;
+  background: var(--color-primary); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-condensed),sans-serif; font-size: 24px; font-weight: 800;
+  flex-shrink: 0;
+}
+.clubInfo { flex: 1; min-width: 0; }
+.clubName { font-family: var(--font-condensed),sans-serif; font-size: 22px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--color-primary-dark); }
+.clubMeta { display: flex; align-items: center; gap: 10px; margin: 3px 0 6px; }
+.clubMetaItem { font-size: 11px; color: var(--color-text-muted); }
+.clubLive { font-size: 11px; color: var(--color-live); font-weight: 700; }
+.clubSports { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.layout { display: grid; grid-template-columns: 1fr 210px; gap: 16px; align-items: start; }
+.main { min-width: 0; }
+.section { margin-bottom: 14px; }
+.sidebar { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.featuredMatch {
+  background: #fff; border: 1.5px solid var(--color-primary);
+  border-radius: 6px; padding: 10px 12px; margin-bottom: 4px;
+}
+.featuredTop { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.featuredComp { font-size: 11px; color: var(--color-text-muted); font-weight: 600; flex: 1; text-transform: uppercase; letter-spacing: .3px; }
+.featuredMin { font-size: 11px; color: var(--color-live); font-weight: 700; }
+.featuredTeams { display: flex; align-items: center; gap: 8px; }
+.featuredTeam { flex: 1; font-size: 14px; font-weight: 700; }
+.right { text-align: right; }
+.featuredScore { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.fNum { font-family: var(--font-condensed),sans-serif; font-size: 22px; font-weight: 800; background: #0d3260; color: #fff; padding: 2px 8px; border-radius: 3px; }
+.fSep { font-size: 14px; color: var(--color-text-muted); }
+.featuredVs { font-size: 12px; color: var(--color-text-muted); padding: 0 8px; }
+.featuredBcast { font-size: 10px; color: var(--color-text-muted); margin-top: 4px; text-align: right; }
+
+.subSection { margin-bottom: 6px; }
+.subLabel { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--color-text-muted); padding: 4px 0 2px; }
+.matchList { background: #fff; border: 0.5px solid var(--color-border); border-radius: 6px; overflow: hidden; }
+
+.sideCard { background: #fff; border: 0.5px solid var(--color-border); border-radius: 6px; padding: 10px 12px; }
+
+.statRow { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 0.5px solid var(--color-border); font-size: 12px; }
+.statRow:last-child { border-bottom: none; }
+.statLabel { color: var(--color-text-muted); }
+.statVal { font-family: var(--font-condensed),sans-serif; font-weight: 700; font-size: 14px; color: var(--color-primary-dark); }
+
+.agendaItem { display: flex; gap: 8px; padding: 5px 0; border-bottom: 0.5px solid var(--color-border); }
+.agendaItem:last-child { border-bottom: none; }
+.agendaTime { font-family: var(--font-condensed),sans-serif; font-weight: 700; font-size: 13px; color: var(--color-primary); min-width: 38px; }
+.agendaInfo { flex: 1; min-width: 0; }
+.agendaMatch { display: block; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agendaComp { display: block; font-size: 10px; color: var(--color-text-muted); }
+
+.resultItem { padding: 4px 0; border-bottom: 0.5px solid var(--color-border); }
+.resultItem:last-child { border-bottom: none; }
+.resultTeams { display: block; font-size: 12px; font-weight: 600; }
+.resultComp { display: block; font-size: 10px; color: var(--color-text-muted); }
+
+.empty { padding: 24px 0; text-align: center; color: var(--color-text-muted); font-size: 13px; }
+.emptyHint { font-size: 11px; margin-top: 6px; color: var(--color-text-muted); font-style: italic; }
+
+@media (max-width: 700px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+}

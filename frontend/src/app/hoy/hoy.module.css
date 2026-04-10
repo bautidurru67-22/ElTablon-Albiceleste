@@ -1,0 +1,59 @@
+.page { width: 100%; }
+
+.pageHeader {
+  display: flex; align-items: baseline;
+  justify-content: space-between; gap: 12px; margin-bottom: 14px;
+}
+.pageTitle {
+  font-family: var(--font-condensed), sans-serif;
+  font-size: 18px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--color-primary-dark);
+}
+.pageDate { font-size: 12px; color: var(--color-text-muted); text-transform: capitalize; }
+
+.layout { display: grid; grid-template-columns: 1fr 210px; gap: 16px; align-items: start; }
+.main { min-width: 0; }
+.section { margin-bottom: 16px; }
+.sidebar { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.sideCard {
+  background: #fff; border: 0.5px solid var(--color-border);
+  border-radius: 6px; padding: 10px 12px;
+}
+
+.statRow {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; border-bottom: 0.5px solid var(--color-border); font-size: 12px;
+}
+.statRow:last-child { border-bottom: none; }
+.total { font-weight: 700; }
+.statLabel { color: var(--color-text-muted); }
+.statVal { font-family: var(--font-condensed), sans-serif; font-weight: 700; font-size: 14px; color: var(--color-primary-dark); }
+
+.sportRow {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; border-bottom: 0.5px solid var(--color-border); font-size: 12px;
+}
+.sportRow:last-child { border-bottom: none; }
+.sportLeft { display: flex; align-items: center; gap: 5px; }
+.liveDot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-live); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+.sportName { color: var(--color-text); }
+.sportCount { font-family: var(--font-condensed), sans-serif; font-weight: 700; color: var(--color-primary-dark); }
+
+.liveItem {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 0; border-bottom: 0.5px solid var(--color-border); font-size: 11px;
+}
+.liveItem:last-child { border-bottom: none; }
+.liveItemSport { flex-shrink: 0; }
+.liveItemMatch { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.liveItemScore { font-family: var(--font-condensed), sans-serif; font-weight: 700; color: var(--color-live); flex-shrink: 0; }
+
+.empty { padding: 24px 0; text-align: center; color: var(--color-text-muted); font-size: 13px; }
+.emptyHint { font-size: 11px; margin-top: 4px; }
+
+@media (max-width: 700px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+}

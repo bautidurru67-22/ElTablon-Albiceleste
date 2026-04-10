@@ -1,0 +1,102 @@
+.row {
+  display: grid;
+  grid-template-columns: 70px 62px 1fr 80px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 0.5px solid var(--color-border);
+  font-size: 12px;
+}
+.row:last-child { border-bottom: none; }
+.row:hover { background: #f8fafc; }
+
+.compact {
+  grid-template-columns: 64px 1fr;
+  gap: 6px;
+  padding: 4px 6px;
+}
+
+.time { flex-shrink: 0; }
+
+.liveBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-live);
+  text-transform: uppercase;
+}
+
+.dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--color-live);
+  animation: pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%,100% { opacity:1; } 50% { opacity:.25; }
+}
+
+.timeText  { color: var(--color-primary); font-weight: 600; font-family: var(--font-condensed), sans-serif; font-size: 13px; }
+.finalText { color: var(--color-text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+
+.sport { min-width: 62px; }
+
+.teams {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.team {
+  flex: 1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.winner { font-weight: 700; color: var(--color-primary-dark); }
+.right  { text-align: right; }
+
+.score {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.num {
+  font-family: var(--font-condensed), sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  background: #e8eef7;
+  color: var(--color-primary-dark);
+  padding: 0 5px;
+  border-radius: 2px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.liveNum { background: #0d3260; color: #fff; }
+
+.sep { font-size: 11px; color: var(--color-text-muted); }
+
+.vs {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.broadcast {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
