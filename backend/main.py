@@ -4,7 +4,7 @@ app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "El Tablón Albiceleste API"}
+    return {"status": "ok"}
 
 @app.get("/api/health")
 async def health():
