@@ -29,8 +29,8 @@ def _ensure_scraping_importable() -> bool:
     # bridge = .../backend/app/scraping_bridge.py
     # parents[2] = .../tablon-albiceleste/
     candidates = [
-        bridge.parents[2],       # tablon-albiceleste/ (local)
-        Path("/app"),            # Railway raíz
+        bridge.parents[2],  # tablon-albiceleste/ (local)
+        Path("/app"),       # Railway raíz
     ]
     for c in candidates:
         s = str(c)
@@ -53,7 +53,8 @@ _SCRAPING_OK = _ensure_scraping_importable()
 
 from app.models.match import Match
 
-# Deportes con adapters reales activos
+# Deportes activos para el bridge.
+# Dejamos foco en los core para no contaminar la prueba con adapters secundarios.
 ACTIVE_SPORTS: list[str] = [
     "futbol",
     "tenis",
@@ -61,12 +62,7 @@ ACTIVE_SPORTS: list[str] = [
     "rugby",
     "hockey",
     "voley",
-    "handball",
     "futsal",
-    "boxeo",
-    "golf",
-    "motorsport",
-    "motogp",
 ]
 
 
@@ -102,12 +98,12 @@ async def _run(sports: list[str], status_filter: str | None) -> list[Match]:
         logger.info(f"[bridge] run_all_flat → {len(normalized)} normalizados")
 
         arg = coordinator.get_argentina_matches(normalized)
-logger.info(f"[bridge] ARG relevance → {len(arg)}")
-
-if not arg:
-    logger.warning("[bridge] filtro argentina devolvió 0; fallback a normalized")
-    arg = normalized
         logger.info(f"[bridge] ARG relevance → {len(arg)}")
+
+        if not arg:
+            logger.warning("[bridge] filtro argentina devolvió 0; fallback a normalized")
+            arg = normalized
+            logger.info(f"[bridge] fallback normalized → {len(arg)}")
 
         if status_filter:
             before = len(arg)
