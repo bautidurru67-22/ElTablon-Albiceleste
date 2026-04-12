@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.hoy import router as hoy_router
+from app.api.routes import router as api_router
 
-app = FastAPI()
+app = FastAPI(title="El Tablón Albiceleste API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,8 +17,4 @@ app.add_middleware(
 async def root():
     return {"status": "ok", "service": "El Tablón Albiceleste API"}
 
-@app.get("/api/health")
-async def health():
-    return {"status": "ok"}
-
-app.include_router(hoy_router, prefix="/api")
+app.include_router(api_router, prefix="/api")
