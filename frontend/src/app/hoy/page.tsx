@@ -3,19 +3,20 @@
 import { useEffect, useState } from "react"
 
 export default function Home() {
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/hoy`
+          `${process.env.NEXT_PUBLIC_API_URL}/api/matches/today`
         )
         const json = await res.json()
-        setData(json)
+        setData(Array.isArray(json) ? json : [])
       } catch (error) {
         console.error("Error:", error)
+        setData([])
       } finally {
         setLoading(false)
       }
@@ -25,16 +26,9 @@ export default function Home() {
   }, [])
 
   return (
-    <main style={{ padding: 20 }}>
+    <main>
       <h1>HOY - Agenda deportiva</h1>
-
-      {loading && <p>Cargando...</p>}
-
-      {!loading && (
-        <pre style={{ background: "#111", color: "#0f0", padding: 10 }}>
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      )}
+      {loading ? <p>Cargando...</p> : <pre>{JSON.stringify(data, null, 2)}</pre>}
     </main>
   )
 }
