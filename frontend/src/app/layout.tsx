@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AuthProvider>
           <Header />
-          <HeroBanner claimIndex={0} />
+          <HeroBanner />
           <SportNav />
           <main style={{ maxWidth: 1200, margin: '0 auto', padding: '16px 12px' }}>
             {children}
