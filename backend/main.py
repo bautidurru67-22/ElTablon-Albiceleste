@@ -1,12 +1,11 @@
 import logging
 import time
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -34,31 +33,37 @@ async def lifespan(app: FastAPI):
     if not settings.is_production:
         try:
             from app.db.session import create_tables
-            import app.db.models  # noqa — registrar modelos
+            import app.db.models  # noqa: F401
+
             await create_tables()
             logger.info("Tablas DB creadas/verificadas")
         except Exception as e:
-            logger.warning(f"DB no disponible (usando mock): {e}")
+            logger.warning(f"DB no disponible (continuando sin bloquear startup): {e}")
     else:
         logger.info("Producción: usar 'alembic upgrade head' para migraciones")
 
-    # Scheduler
-    from app.scheduler import setup_scheduler
-    sched = setup_scheduler()
-    sched.start()
-    logger.info("Scheduler activo: live/45s · today/5min · results/10min")
+    # IMPORTANTE:
+    # Desactivamos temporalmente scheduler y prewarm para que Railway
+    # pueda pasar el healthcheck y levantar el servicio sin bloquear startup.
+    #
+    # Cuando el backend quede estable, esto se puede reactivar de forma gradual.
 
-    # Pre-calentar cache
-    from app.scheduler import _job_today
-    try:
-        await _job_today()
-        logger.info("Cache pre-calentado")
-    except Exception as e:
-        logger.warning(f"Pre-warm falló — sirviendo mock: {e}")
+    # from app.scheduler import setup_scheduler
+    # sched = setup_scheduler()
+    # sched.start()
+    # logger.info("Scheduler activo: live/45s · today/5min · results/10min")
+
+    # from app.scheduler import _job_today
+    # try:
+    #     await _job_today()
+    #     logger.info("Cache pre-calentado")
+    # except Exception as e:
+    #     logger.warning(f"Pre-warm falló — continuando sin bloquear startup: {e}")
 
     yield
 
-    sched.shutdown(wait=False)
+    # if 'sched' in locals():
+    #     sched.shutdown(wait=False)
     logger.info("Shutdown completo")
 
 
@@ -85,7 +90,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ---------------------------------------------------------------------------
 # Middleware — request logging + timing
 # ---------------------------------------------------------------------------
@@ -94,10 +98,12 @@ async def log_requests(request: Request, call_next):
     start = time.monotonic()
     response = await call_next(request)
     duration_ms = round((time.monotonic() - start) * 1000)
-    if request.url.path not in ("/api/health", "/api/health/full"):
+
+    if request.url.path not in ("/", "/api/health", "/api/health/full"):
         logger.info(
             f"{request.method} {request.url.path} → {response.status_code} [{duration_ms}ms]"
         )
+
     return response
 
 
@@ -122,9 +128,23 @@ async def generic_error_handler(request: Request, exc: Exception):
 
 
 # ---------------------------------------------------------------------------
+# Health / Root routes
+# ---------------------------------------------------------------------------
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "El Tablón Albiceleste API"}
+
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 from app.api.routes import router
+
 app.include_router(router, prefix="/api")
 
 logger.info(f"CORS: {settings.allowed_origins}")
