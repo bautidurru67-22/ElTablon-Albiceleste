@@ -1,5 +1,4 @@
 from app.models.sport import SportSummary
-from app.services.match_service import _MOCK as MOCK_MATCHES
 
 SPORTS = [
     ("futbol",    "Fútbol"),
