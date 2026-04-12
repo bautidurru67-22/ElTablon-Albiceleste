@@ -1,8 +1,9 @@
 from app.services.match_service import get_today_matches, get_live_matches
 
-def get_sports_summary():
-    today_matches = get_today_matches()
-    live_matches = get_live_matches()
+
+async def get_sports_summary():
+    today_matches = await get_today_matches()
+    live_matches = await get_live_matches()
 
     return {
         "sports": [],
