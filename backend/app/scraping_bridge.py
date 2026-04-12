@@ -101,7 +101,12 @@ async def _run(sports: list[str], status_filter: str | None) -> list[Match]:
         normalized = await coordinator.run_all_flat()
         logger.info(f"[bridge] run_all_flat → {len(normalized)} normalizados")
 
-        arg = normalized
+        arg = coordinator.get_argentina_matches(normalized)
+logger.info(f"[bridge] ARG relevance → {len(arg)}")
+
+if not arg:
+    logger.warning("[bridge] filtro argentina devolvió 0; fallback a normalized")
+    arg = normalized
         logger.info(f"[bridge] ARG relevance → {len(arg)}")
 
         if status_filter:
