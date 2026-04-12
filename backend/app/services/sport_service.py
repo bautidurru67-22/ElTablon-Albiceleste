@@ -1,29 +1,11 @@
-from app.models.sport import SportSummary
+from app.services.match_service import get_today_matches, get_live_matches
 
-SPORTS = [
-    ("futbol",    "Fútbol"),
-    ("tenis",     "Tenis"),
-    ("basquet",   "Básquet"),
-    ("hockey",    "Hockey"),
-    ("rugby",     "Rugby"),
-    ("voley",     "Voley"),
-    ("boxeo",     "Boxeo"),
-    ("futsal",    "Futsal"),
-    ("polo",      "Polo"),
-    ("golf",      "Golf"),
-    ("handball",  "Handball"),
-    ("esports",   "Esports"),
-]
+def get_sports_summary():
+    today_matches = get_today_matches()
+    live_matches = get_live_matches()
 
-
-async def get_sports_summary() -> list[SportSummary]:
-    result = []
-    for slug, label in SPORTS:
-        sport_matches = [m for m in MOCK_MATCHES if m.sport == slug]
-        result.append(SportSummary(
-            slug=slug,
-            label=label,
-            live_count=sum(1 for m in sport_matches if m.status == "live"),
-            today_count=len(sport_matches),
-        ))
-    return result
+    return {
+        "sports": [],
+        "today_count": len(today_matches) if isinstance(today_matches, list) else 0,
+        "live_count": len(live_matches) if isinstance(live_matches, list) else 0,
+    }
