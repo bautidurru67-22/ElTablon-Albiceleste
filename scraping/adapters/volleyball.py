@@ -1,106 +1,79 @@
 """
-Adapter de vóley argentino.
-Fuente primaria : FIVB / Volleyball World (volleyballworld.com)
-Fallback        : Sofascore
+Adapter vóley.
+1. Sofascore (primary para internacionales)
+2. voley.org.ar — liga argentina
+3. fivb.com — selección argentina
 """
 import logging
 import re
-from bs4 import BeautifulSoup
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
 from scraping.sources import sofascore
 from scraping.normalizers import sofascore_normalizer
-from scraping.argentina import detect_argentina_relevance
+from scraping.argentina import detect_argentina_relevance, normalize_str
 
 logger = logging.getLogger(__name__)
 
-FIVB_SCORES_URL = "https://en.volleyballworld.com/volleyball/competitions/results/"
+VOLEY_ARG_URL = "https://www.voley.org.ar/competencias"
+FIVB_URL = "https://www.fivb.com/en/volleyball/competitions"
 
 
 class VolleyballAdapter(BaseScraper):
-    """
-    Vóley argentino:
-      - Las Panteras / Selección masculina
-      - VNL (Volleyball Nations League)
-      - Campeonato Mundial / FIVB eventos
-      - Liga de Voleibol Argentina
-    """
-    EXTRA_HEADERS = {"Referer": "https://en.volleyballworld.com/"}
-
     async def scrape(self) -> list[NormalizedMatch]:
-        matches: list[NormalizedMatch] = []
+        matches = []
 
-        # Fuente 1: FIVB Volleyball World
-        try:
-            html = await self.fetch_html(FIVB_SCORES_URL)
-            local = self._parse_fivb(html)
-            logger.info(f"[volleyball/fivb] {len(local)} con ARG")
-            matches.extend(local)
-        except Exception as e:
-            logger.warning(f"[volleyball/fivb] falló: {e}")
+        for fn, label in [
+            (lambda: sofascore.get_events_by_date("voley"), "scheduled"),
+            (lambda: sofascore.get_live_events("voley"), "live"),
+        ]:
+            try:
+                data = await fn()
+                events = data.get("events", [])
+                ss = sofascore_normalizer.normalize_events(events, "voley")
+                existing = {m.id for m in matches}
+                new = [m for m in ss if m.id not in existing]
+                logger.info(f"[volleyball/ss-{label}] {len(new)}")
+                matches.extend(new)
+            except Exception as e:
+                logger.warning(f"[volleyball/ss-{label}] {e}")
 
-        # Fallback: Sofascore
-        try:
-            data = await sofascore.get_events_by_date("voley")
-            events = data.get("events", [])
-            ss = sofascore_normalizer.normalize_events(events, "voley")
-            existing = {m.id for m in matches}
-            new = [m for m in ss if m.id not in existing]
-            logger.info(f"[volleyball/sofascore-fallback] {len(new)} adicionales")
-            matches.extend(new)
-        except Exception as e:
-            logger.warning(f"[volleyball/sofascore] falló: {e}")
+        # voley.org.ar fallback
+        if not matches:
+            try:
+                html = await self.fetch_html(VOLEY_ARG_URL)
+                local = self._parse_voley_ar(html)
+                logger.info(f"[volleyball/voley.org.ar] {len(local)}")
+                matches.extend(local)
+            except Exception as e:
+                logger.warning(f"[volleyball/voley.org.ar] {e}")
 
+        logger.info(f"[volleyball] TOTAL {len(matches)}")
         return matches
 
-    def _parse_fivb(self, html: str) -> list[NormalizedMatch]:
+    def _parse_voley_ar(self, html: str) -> list[NormalizedMatch]:
+        from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "lxml")
         results = []
-        for row in soup.select("div.match-card, article.result, li.match-result, div.game-row"):
+        comp = "Liga de Voleibol Argentina"
+        for row in soup.select("div.partido, div.match, tr.match-row, article.game"):
             try:
-                team_tags = row.select(".team-name, .team, span.name")
-                if len(team_tags) < 2:
+                h_el = row.select_one(".local, .home, .equipo-a, .team-home")
+                a_el = row.select_one(".visitante, .away, .equipo-b, .team-away")
+                if not h_el or not a_el:
                     continue
-                home = team_tags[0].get_text(strip=True)
-                away = team_tags[1].get_text(strip=True)
-                relevance, arg_team = detect_argentina_relevance(home, away, "", "voley")
+                h, a = h_el.get_text(strip=True), a_el.get_text(strip=True)
+                if not h or not a:
+                    continue
+                relevance, arg_team = detect_argentina_relevance(h, a, comp, "voley")
                 if relevance == "none":
                     continue
-
-                score_tag = row.select_one(".score, .result, .sets")
-                comp_tag  = row.find_previous(["div","h2","h3"], class_=["competition","event","league"])
-                time_tag  = row.select_one(".time, .hour, .match-time")
-
-                home_score = away_score = None
-                score_text = score_tag.get_text(strip=True) if score_tag else ""
-                if "-" in score_text:
-                    parts = score_text.split("-")
-                    if len(parts) == 2:
-                        try:
-                            home_score = int(parts[0].strip())
-                            away_score = int(parts[1].strip())
-                        except ValueError:
-                            pass
-
-                status = "finished" if home_score is not None else "upcoming"
-                competition = comp_tag.get_text(strip=True) if comp_tag else "FIVB"
-                home_slug = re.sub(r"\W+", "-", home.lower())[:20]
-                away_slug = re.sub(r"\W+", "-", away.lower())[:20]
-
+                h_n = re.sub(r"\W+", "-", normalize_str(h))[:20]
+                a_n = re.sub(r"\W+", "-", normalize_str(a))[:20]
                 results.append(NormalizedMatch(
-                    id=f"voley-fivb-{home_slug}-{away_slug}",
-                    sport="voley",
-                    source="fivb",
-                    competition=competition,
-                    home_team=home,
-                    away_team=away,
-                    home_score=home_score,
-                    away_score=away_score,
-                    status=status,
-                    start_time_arg=time_tag.get_text(strip=True) if time_tag else None,
-                    argentina_relevance=relevance,
-                    argentina_team=arg_team,
-                    raw={},
+                    id=f"voley-ar-{h_n}-{a_n}",
+                    sport="voley", source="voley.org.ar", competition=comp,
+                    home_team=h, away_team=a, status="upcoming",
+                    argentina_relevance=relevance, argentina_team=arg_team, raw={},
                 ))
             except Exception:
                 continue

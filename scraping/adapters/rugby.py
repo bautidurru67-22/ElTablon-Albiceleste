@@ -1,56 +1,43 @@
 """
 Adapter de rugby argentino.
-Fuente primaria : UAR (uar.com.ar)
-Fallback        : Sofascore
+
+Fuentes:
+1. Sofascore scheduled (rugby-union) — principal
+2. Sofascore live                    — en vivo
+3. UAR.com.ar HTML                   — fallback local
+
+Cubre: Los Pumas, Pumitas, Argentina 7s, SuperRugby Américas, URBA.
 """
 import logging
 import re
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
-from scraping.sources import sofascore, uar as uar_source
+from scraping.sources import sofascore
 from scraping.normalizers import sofascore_normalizer
-from scraping.argentina import detect_argentina_relevance
+from scraping.argentina import detect_argentina_relevance, normalize_str
 
 logger = logging.getLogger(__name__)
 
+UAR_FIXTURE_URL = "https://www.uar.com.ar/fixture-y-resultados"
+
 
 class RugbyAdapter(BaseScraper):
-    """
-    Rugby argentino:
-      - Los Pumas (The Rugby Championship, giras)
-      - Pumitas / Argentina 7s
-      - SuperRugby Américas / Jaguares
-      - URBA Top 14
-    """
     EXTRA_HEADERS = {"Referer": "https://www.uar.com.ar/"}
 
     async def scrape(self) -> list[NormalizedMatch]:
         matches: list[NormalizedMatch] = []
 
-        # Fuente 1: UAR — fixture y resultados oficiales
-        try:
-            html = await self.fetch_html(uar_source.FIXTURES_URL)
-            raws = uar_source.parse_matches(html)
-            local = [self._normalize_raw(r) for r in raws]
-            local = [m for m in local if m is not None]
-            logger.info(f"[rugby/uar] {len(local)} partidos")
-            matches.extend(local)
-        except Exception as e:
-            logger.warning(f"[rugby/uar] falló: {e}")
-
-        # Fallback: Sofascore — internacionales + en vivo
+        # ── Fuente 1: Sofascore scheduled ─────────────────────────────────
         try:
             data = await sofascore.get_events_by_date("rugby")
             events = data.get("events", [])
             ss = sofascore_normalizer.normalize_events(events, "rugby")
-            existing = {m.id for m in matches}
-            new = [m for m in ss if m.id not in existing]
-            logger.info(f"[rugby/sofascore-fallback] {len(new)} adicionales")
-            matches.extend(new)
+            logger.info(f"[rugby/sofascore-scheduled] {len(ss)} con ARG (de {len(events)} total)")
+            matches.extend(ss)
         except Exception as e:
-            logger.warning(f"[rugby/sofascore] falló: {e}")
+            logger.warning(f"[rugby/sofascore-scheduled] falló: {e}")
 
-        # En vivo
+        # ── Fuente 2: Sofascore live ───────────────────────────────────────
         try:
             data = await sofascore.get_live_events("rugby")
             events = data.get("events", [])
@@ -62,34 +49,63 @@ class RugbyAdapter(BaseScraper):
         except Exception as e:
             logger.warning(f"[rugby/sofascore-live] falló: {e}")
 
+        # ── Fuente 3: UAR HTML (solo si Sofascore no devolvió nada) ───────
+        if not matches:
+            try:
+                html = await self.fetch_html(UAR_FIXTURE_URL)
+                local = self._parse_uar(html)
+                logger.info(f"[rugby/uar-fallback] {len(local)} partidos")
+                matches.extend(local)
+            except Exception as e:
+                logger.warning(f"[rugby/uar-fallback] falló: {e}")
+
+        logger.info(f"[rugby] TOTAL: {len(matches)}")
         return matches
 
-    def _normalize_raw(self, raw: dict) -> NormalizedMatch | None:
-        try:
-            home = raw.get("home", "").strip()
-            away = raw.get("away", "").strip()
-            if not home or not away:
-                return None
-            competition = raw.get("competition", "Rugby Argentina")
-            relevance, arg_team = detect_argentina_relevance(home, away, competition, "rugby")
-            if relevance == "none":
-                return None
-            home_slug = re.sub(r"\W+", "-", home.lower())[:20]
-            away_slug = re.sub(r"\W+", "-", away.lower())[:20]
-            return NormalizedMatch(
-                id=f"rugby-uar-{home_slug}-{away_slug}",
-                sport="rugby",
-                source="uar",
-                competition=competition,
-                home_team=home,
-                away_team=away,
-                home_score=raw.get("home_score"),
-                away_score=raw.get("away_score"),
-                status=raw.get("status", "upcoming"),
-                start_time_arg=raw.get("start_time"),
-                argentina_relevance=relevance,
-                argentina_team=arg_team,
-                raw=raw,
-            )
-        except Exception:
-            return None
+    def _parse_uar(self, html: str) -> list[NormalizedMatch]:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "lxml")
+        results = []
+        comp = "Rugby Argentina"
+
+        for row in soup.select("div.partido, article.match, div.fixture-item, li.match-item"):
+            try:
+                home_tag = row.select_one(".local, .home, .team-home, .equipo1")
+                away_tag = row.select_one(".visitante, .away, .team-away, .equipo2")
+                if not home_tag or not away_tag:
+                    continue
+                home = home_tag.get_text(strip=True)
+                away = away_tag.get_text(strip=True)
+                if not home or not away:
+                    continue
+
+                relevance, arg_team = detect_argentina_relevance(home, away, comp, "rugby")
+                if relevance == "none":
+                    continue
+
+                score_tag = row.select_one(".resultado, .score, .puntos")
+                time_tag  = row.select_one(".hora, .time, .horario")
+                home_score = away_score = None
+                score_text = score_tag.get_text(strip=True) if score_tag else ""
+                if "-" in score_text:
+                    parts = score_text.split("-")
+                    if len(parts) == 2:
+                        try:
+                            home_score, away_score = int(parts[0].strip()), int(parts[1].strip())
+                        except ValueError:
+                            pass
+                status = "finished" if home_score is not None else "upcoming"
+
+                home_n = re.sub(r"\W+", "-", normalize_str(home))[:20]
+                away_n = re.sub(r"\W+", "-", normalize_str(away))[:20]
+                results.append(NormalizedMatch(
+                    id=f"rugby-uar-{home_n}-{away_n}",
+                    sport="rugby", source="uar", competition=comp,
+                    home_team=home, away_team=away,
+                    home_score=home_score, away_score=away_score, status=status,
+                    start_time_arg=time_tag.get_text(strip=True) if time_tag else None,
+                    argentina_relevance=relevance, argentina_team=arg_team, raw={},
+                ))
+            except Exception:
+                continue
+        return results

@@ -1,60 +1,54 @@
-.wrapper {
-  width: 100%;
-}
-
-.banner {
+.hero {
+  background: #e8f4fb;
   position: relative;
-  background: #f0f8ff;
   overflow: hidden;
-  padding: 10px 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 46px;
+  padding: 28px 16px 24px;
+  border-bottom: 1px solid #c9e3f0;
+  text-align: center;
 }
 
-/* Franjas estilo bandera argentina */
-.stripeLight,
-.stripeBlue {
+.waves {
   position: absolute;
+  bottom: 0;
   left: 0;
   right: 0;
-  height: 15px;
+  width: 100%;
+  height: 70px;
+  pointer-events: none;
 }
 
-.stripeLight:first-child { top: 0; background: #74b9e8; opacity: 0.35; }
-.stripeBlue             { top: 15px; background: #74b9e8; opacity: 0.15; }
-.stripeLight:last-of-type { bottom: 0; background: #74b9e8; opacity: 0.35; }
+.mapas {
+  position: absolute;
+  right: 4%;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 110px;
+  width: 200px;
+  pointer-events: none;
+  opacity: 0.6;
+}
 
-.content {
+.inner {
   position: relative;
   z-index: 1;
-  text-align: center;
-  padding: 0 16px;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-.claim {
-  font-family: var(--font-condensed), sans-serif;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 3px;
-  text-transform: uppercase;
+.title {
+  font-family: var(--font-main);
+  font-size: 32px;
+  font-weight: 700;
   color: #0d3260;
-  margin: 0;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
 }
 
-/* Slot publicitario: reserva espacio pero invisible hasta activar */
-.adSlot {
-  width: 100%;
-  min-height: 0;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  /* Activar cuando haya anunciante:
-  min-height: 90px;
-  background: #f5f5f5;
-  border-top: 1px solid var(--color-border);
-  */
+.accent {
+  color: #1a5fa8;
+}
+
+@media (max-width: 600px) {
+  .title { font-size: 24px; }
+  .mapas { display: none; }
 }
