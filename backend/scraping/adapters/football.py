@@ -19,12 +19,14 @@ logger = logging.getLogger(__name__)
 
 class FootballAdapter(BaseScraper):
     SOURCE_ORDER = ["promiedos", "afa", "sofascore"]
+    DIAG_VERSION = "football-diag-v3-2026-04-13"
     LAST_RUN: dict = {}
 
     async def scrape(self) -> list[NormalizedMatch]:
         matches: list[NormalizedMatch] = []
         seen: set[str] = set()
         diagnostics = {
+            "diag_version": self.DIAG_VERSION,
             "sources": {},
             "total_unique": 0,
         }
