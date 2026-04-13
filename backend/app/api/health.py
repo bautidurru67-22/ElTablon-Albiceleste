@@ -62,6 +62,8 @@ async def debug_scraping(sport: str = "futbol"):
         if sport not in ADAPTER_REGISTRY:
             result["errors"].append(f"'{sport}' no está en ADAPTER_REGISTRY. Disponibles: {list(ADAPTER_REGISTRY.keys())}")
             return result
+        adapter_cls = ADAPTER_REGISTRY[sport]
+        result["sources_tried"] = getattr(adapter_cls, "SOURCE_ORDER", [])
 
         from scraping.orchestrator.coordinator import ScrapingCoordinator
         coord = ScrapingCoordinator({sport: ADAPTER_REGISTRY[sport]}, timeout_per_adapter=25)
