@@ -1,56 +1,58 @@
 """
 Fútbol argentino.
 
-Fuentes en orden:
-1. API-Football v3 (api-football.com) — oficial, gratis 100 req/día, requiere key
-2. TheSportsDB          — gratuita sin key, liga profesional + libertadores
-3. Sofascore            — fallback, puede fallar en Railway (403 Cloudflare)
+Fuentes en orden de prioridad:
+1. ESPN API pública  — Liga Prof, Libertadores, Sudamericana, Copa Arg, ligas europeas
+2. API-Football v3   — si API_FOOTBALL_KEY está configurado en Railway
+3. TheSportsDB       — next/past events como complemento
+4. Sofascore         — fallback si todo lo anterior falla
+
+ESPN no requiere key y no bloquea IPs de Railway.
 """
 import logging
 import re
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
 from scraping.argentina import detect_argentina_relevance, normalize_str
+from scraping.sources.espn_api import get_sport_events, parse_event as parse_espn
 from scraping.sources.apifootball_free import get_fixtures_today, get_live_fixtures, parse_fixture as parse_apifb
-from scraping.sources.thesportsdb import get_events_today, parse_event, LEAGUE_IDS as TSDB_LEAGUES
+from scraping.sources.thesportsdb import get_events_today, get_next_events, get_last_events, parse_event as parse_tsdb
 from scraping.sources.sofascore_safe import get_events_by_date as ss_today, get_live_events as ss_live
 from scraping.normalizers import sofascore_normalizer
 
 logger = logging.getLogger(__name__)
 
-# Ligas TheSportsDB relevantes para Argentina
-TSDB_FOOTBALL_LEAGUES = {
+# IDs TheSportsDB para fútbol argentino
+TSDB_FOOTBALL = {
     4406: "Liga Profesional Argentina",
     4500: "Copa Libertadores",
-    4501: "Copa Sudamericana",
 }
 
 
-def _make_match(raw: dict, source_id: str) -> NormalizedMatch | None:
+def _make(raw: dict, source: str) -> NormalizedMatch | None:
     home = raw.get("home", "").strip()
     away = raw.get("away", "").strip()
     if not home or not away:
         return None
     comp = raw.get("competition", "") or ""
-    relevance, arg_team = detect_argentina_relevance(home, away, comp, "futbol")
-    if relevance == "none":
+    rel, arg_team = detect_argentina_relevance(home, away, comp, "futbol")
+    if rel == "none":
         return None
-    h_n = re.sub(r"\W+", "-", normalize_str(home))[:20]
-    a_n = re.sub(r"\W+", "-", normalize_str(away))[:20]
+    hn = re.sub(r"\W+", "-", normalize_str(home))[:20]
+    an = re.sub(r"\W+", "-", normalize_str(away))[:20]
     return NormalizedMatch(
-        id=f"futbol-{source_id}-{h_n}-{a_n}",
-        sport="futbol",
-        source=source_id,
+        id=f"futbol-{source}-{hn}-{an}",
+        sport="futbol", source=source,
         competition=comp or "Fútbol",
-        home_team=home,
-        away_team=away,
+        home_team=home, away_team=away,
         home_score=raw.get("home_score"),
         away_score=raw.get("away_score"),
         status=raw.get("status", "upcoming"),
         minute=raw.get("minute"),
         start_time_arg=raw.get("start_time"),
-        argentina_relevance=relevance,
+        argentina_relevance=rel,
         argentina_team=arg_team,
+        broadcast=raw.get("broadcast"),
         raw=raw,
     )
 
@@ -61,49 +63,62 @@ class FootballAdapter(BaseScraper):
         matches: list[NormalizedMatch] = []
         seen: set[str] = set()
 
-        def _add(m: NormalizedMatch | None) -> None:
+        def add(m: NormalizedMatch | None) -> None:
             if m and m.id not in seen:
                 seen.add(m.id)
                 matches.append(m)
 
-        # ── 1. API-Football (oficial, requiere API_FOOTBALL_KEY) ───────────
+        # ── 1. ESPN API (no key, no bloqueo en Railway) ───────────────────
+        try:
+            events = await get_sport_events("futbol")
+            before = len(matches)
+            for ev in events:
+                raw = parse_espn(ev)
+                if raw:
+                    add(_make(raw, "espn"))
+            logger.info(f"[football/espn] {len(matches) - before} de {len(events)} eventos")
+        except Exception as e:
+            logger.warning(f"[football/espn] {e}")
+
+        # ── 2. API-Football (si hay key en Railway env vars) ───────────────
         try:
             fixtures = await get_fixtures_today()
             live_fix = await get_live_fixtures()
+            before = len(matches)
             for fix in fixtures + live_fix:
                 raw = parse_apifb(fix)
-                _add(_make_match(raw, "apifb"))
-            logger.info(f"[football/api_football] {len([m for m in matches if m.source=='apifb'])} partidos")
+                add(_make(raw, "apifb"))
+            if fixtures or live_fix:
+                logger.info(f"[football/api_football] {len(matches) - before}")
         except Exception as e:
             logger.warning(f"[football/api_football] {e}")
 
-        # ── 2. TheSportsDB (gratuita sin key) ─────────────────────────────
+        # ── 3. TheSportsDB (complemento) ───────────────────────────────────
         try:
             before = len(matches)
-            for league_id, league_name in TSDB_FOOTBALL_LEAGUES.items():
-                events = await get_events_today(league_id)
-                for ev in events:
-                    raw = parse_event(ev, "futbol")
-                    raw["competition"] = raw.get("competition") or league_name
-                    _add(_make_match(raw, "tsdb"))
-            logger.info(f"[football/thesportsdb] {len(matches) - before} partidos")
+            for lid, lname in TSDB_FOOTBALL.items():
+                for fn in [get_events_today, get_next_events, get_last_events]:
+                    for ev in await fn(lid):
+                        raw = parse_tsdb(ev, "futbol")
+                        raw["competition"] = raw.get("competition") or lname
+                        add(_make(raw, "tsdb"))
+            logger.info(f"[football/tsdb] {len(matches) - before}")
         except Exception as e:
-            logger.warning(f"[football/thesportsdb] {e}")
+            logger.warning(f"[football/tsdb] {e}")
 
-        # ── 3. Sofascore (fallback — puede fallar con 403 en Railway) ─────
-        try:
-            before = len(matches)
-            for fn, label in [(ss_today, "sched"), (ss_live, "live")]:
-                data = await fn("futbol")
-                events = data.get("events", [])
-                ss = sofascore_normalizer.normalize_events(events, "futbol")
-                for m in ss:
-                    if m.id not in seen:
-                        seen.add(m.id)
-                        matches.append(m)
-            logger.info(f"[football/sofascore] {len(matches) - before} adicionales")
-        except Exception as e:
-            logger.warning(f"[football/sofascore] {e}")
+        # ── 4. Sofascore (fallback — puede dar 403 en Railway) ─────────────
+        if not matches:
+            try:
+                before = len(matches)
+                for fn in [ss_today, ss_live]:
+                    data = await fn("futbol")
+                    for m in sofascore_normalizer.normalize_events(
+                            data.get("events", []), "futbol"):
+                        if m.id not in seen:
+                            seen.add(m.id); matches.append(m)
+                logger.info(f"[football/sofascore] {len(matches) - before}")
+            except Exception as e:
+                logger.warning(f"[football/sofascore] {e}")
 
         logger.info(f"[football] TOTAL {len(matches)}")
         return matches

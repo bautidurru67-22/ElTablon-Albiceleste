@@ -1,76 +1,44 @@
-"""
-Vóley argentino.
-
-Fuentes:
-1. TheSportsDB — FIVB, Liga Argentina
-2. Sofascore   — fallback
-"""
-import logging
-import re
+"""Vóley — TheSportsDB (FIVB) + Sofascore."""
+import logging, re
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
 from scraping.argentina import detect_argentina_relevance, normalize_str
-from scraping.sources.thesportsdb import get_events_today, parse_event
+from scraping.sources.thesportsdb import get_events_today, get_next_events, parse_event as parse_tsdb
 from scraping.sources.sofascore_safe import get_events_by_date as ss_today, get_live_events as ss_live
 from scraping.normalizers import sofascore_normalizer
-
 logger = logging.getLogger(__name__)
+SPORT = "voley"
 
-TSDB_VOLEY = {5028: "FIVB Volleyball"}
-
-
-def _make_match(raw: dict, source: str) -> NormalizedMatch | None:
-    home = raw.get("home", "").strip()
-    away = raw.get("away", "").strip()
-    if not home or not away:
-        return None
-    comp = raw.get("competition", "") or ""
-    relevance, arg_team = detect_argentina_relevance(home, away, comp, "voley")
-    if relevance == "none":
-        return None
-    h_n = re.sub(r"\W+", "-", normalize_str(home))[:20]
-    a_n = re.sub(r"\W+", "-", normalize_str(away))[:20]
-    return NormalizedMatch(
-        id=f"voley-{source}-{h_n}-{a_n}",
-        sport="voley", source=source, competition=comp or "Vóley",
-        home_team=home, away_team=away,
+def _make(raw, src):
+    h, a = raw.get("home","").strip(), raw.get("away","").strip()
+    if not h or not a: return None
+    comp = raw.get("competition","") or ""
+    rel, arg = detect_argentina_relevance(h, a, comp, SPORT)
+    if rel == "none": return None
+    hn = re.sub(r"\W+","-",normalize_str(h))[:20]
+    an = re.sub(r"\W+","-",normalize_str(a))[:20]
+    return NormalizedMatch(id=f"{SPORT}-{src}-{hn}-{an}", sport=SPORT, source=src,
+        competition=comp or "Vóley", home_team=h, away_team=a,
         home_score=raw.get("home_score"), away_score=raw.get("away_score"),
-        status=raw.get("status", "upcoming"), start_time_arg=raw.get("start_time"),
-        argentina_relevance=relevance, argentina_team=arg_team, raw=raw,
-    )
-
+        status=raw.get("status","upcoming"), start_time_arg=raw.get("start_time"),
+        argentina_relevance=rel, argentina_team=arg, raw=raw)
 
 class VolleyballAdapter(BaseScraper):
-
-    async def scrape(self) -> list[NormalizedMatch]:
-        matches: list[NormalizedMatch] = []
-        seen: set[str] = set()
-
-        def _add(m):
-            if m and m.id not in seen:
-                seen.add(m.id)
-                matches.append(m)
-
+    async def scrape(self):
+        matches, seen = [], set()
+        def add(m):
+            if m and m.id not in seen: seen.add(m.id); matches.append(m)
         try:
-            for lid, lname in TSDB_VOLEY.items():
-                for ev in await get_events_today(lid):
-                    raw = parse_event(ev, "voley")
-                    raw["competition"] = raw.get("competition") or lname
-                    _add(_make_match(raw, "tsdb"))
-            logger.info(f"[volleyball/tsdb] {len(matches)}")
-        except Exception as e:
-            logger.warning(f"[volleyball/tsdb] {e}")
-
+            for fn in [get_events_today, get_next_events]:
+                for ev in await fn(5028):  # FIVB
+                    raw = parse_tsdb(ev, SPORT); add(_make(raw, "tsdb"))
+            logger.info(f"[voley/tsdb] {len(matches)}")
+        except Exception as e: logger.warning(f"[voley/tsdb] {e}")
         if not matches:
             try:
                 for fn in [ss_today, ss_live]:
-                    data = await fn("voley")
-                    for m in sofascore_normalizer.normalize_events(data.get("events", []), "voley"):
-                        if m.id not in seen:
-                            seen.add(m.id); matches.append(m)
-                logger.info(f"[volleyball/sofascore] {len(matches)}")
-            except Exception as e:
-                logger.warning(f"[volleyball/sofascore] {e}")
-
-        logger.info(f"[volleyball] TOTAL {len(matches)}")
-        return matches
+                    data = await fn(SPORT)
+                    for m in sofascore_normalizer.normalize_events(data.get("events",[]), SPORT):
+                        if m.id not in seen: seen.add(m.id); matches.append(m)
+            except Exception as e: logger.warning(f"[voley/sofascore] {e}")
+        logger.info(f"[voley] TOTAL {len(matches)}"); return matches

@@ -1,4 +1,4 @@
-"""Futsal argentino — Sofascore (fuente más viable para futsal)."""
+"""Futsal — Sofascore (única fuente viable)."""
 import logging
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
@@ -7,17 +7,13 @@ from scraping.normalizers import sofascore_normalizer
 logger = logging.getLogger(__name__)
 
 class FutsalAdapter(BaseScraper):
-    async def scrape(self) -> list[NormalizedMatch]:
-        matches: list[NormalizedMatch] = []
-        seen: set[str] = set()
+    async def scrape(self):
+        matches, seen = [], set()
         try:
             for fn in [ss_today, ss_live]:
                 data = await fn("futsal")
-                for m in sofascore_normalizer.normalize_events(data.get("events", []), "futsal"):
-                    if m.id not in seen:
-                        seen.add(m.id); matches.append(m)
+                for m in sofascore_normalizer.normalize_events(data.get("events",[]), "futsal"):
+                    if m.id not in seen: seen.add(m.id); matches.append(m)
             logger.info(f"[futsal/sofascore] {len(matches)}")
-        except Exception as e:
-            logger.warning(f"[futsal/sofascore] {e}")
-        logger.info(f"[futsal] TOTAL {len(matches)}")
-        return matches
+        except Exception as e: logger.warning(f"[futsal/sofascore] {e}")
+        logger.info(f"[futsal] TOTAL {len(matches)}"); return matches
