@@ -5,6 +5,7 @@ Usa normalize_str() en todas las comparaciones para manejar tildes/acentos.
 from __future__ import annotations
 import unicodedata
 import logging
+import re
 from scraping.models import ArgRelevance
 
 logger = logging.getLogger(__name__)
@@ -196,12 +197,18 @@ def detect_argentina_relevance(
     an = normalize_str(away)
     cn = normalize_str(competition)
 
+    def _contains(name_norm: str, hay_norm: str) -> bool:
+        # Tokens cortos (ej: "arg") deben matchear palabra completa
+        if len(name_norm) <= 3:
+            return re.search(rf"\b{re.escape(name_norm)}\b", hay_norm) is not None
+        return name_norm in hay_norm
+
     # 1. Selección nacional
     for name in _NATIONAL:
         nn = normalize_str(name)
-        if nn and nn in hn:
+        if nn and _contains(nn, hn):
             return "seleccion", home
-        if nn and nn in an:
+        if nn and _contains(nn, an):
             return "seleccion", away
 
     # 2. Club argentino
