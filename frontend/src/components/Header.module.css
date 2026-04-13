@@ -22,7 +22,7 @@
 
 .logoImage {
   width: auto;
-  height: 85px; /* antes 30px: un poco más grande */
+  height: 75px; /* antes 30px: un poco más grande */
   object-fit: contain;
   display: block;
 }
