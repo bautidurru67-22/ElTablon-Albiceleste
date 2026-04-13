@@ -22,7 +22,7 @@
 
 .logoImage {
   width: auto;
-  height: 40px; /* <-- achica el logo */
+  height: 30px; /* <-- achica el logo */
   object-fit: contain;
   display: block;
 }
