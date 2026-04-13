@@ -13,6 +13,7 @@ from scraping.sources.afa import get_fixture_html, parse_fixture
 from scraping.normalizers.promiedos_normalizer import normalize_matches as normalize_promiedos
 from scraping.sources.sofascore import get_events_by_date, get_live_events
 from scraping.normalizers import sofascore_normalizer
+from scraping.argentina import normalize_str, ARG_CLUBS
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,13 @@ class FootballAdapter(BaseScraper):
     SOURCE_ORDER = ["promiedos", "afa", "sofascore"]
     DIAG_VERSION = "football-diag-v3-2026-04-13"
     LAST_RUN: dict = {}
+    ARG_COMP_KEYWORDS = [
+        "liga profesional", "primera nacional", "primera b", "primera c",
+        "primera d", "federal a", "copa argentina", "copa de la liga",
+        "supercopa argentina", "torneo argentina", "conmebol libertadores",
+        "conmebol sudamericana", "seleccion argentina",
+    ]
+    NOISE_KEYWORDS = ["reserve", "reserves", "u20", "u21", "u23"]
 
     async def scrape(self) -> list[NormalizedMatch]:
         matches: list[NormalizedMatch] = []
@@ -32,7 +40,7 @@ class FootballAdapter(BaseScraper):
         }
 
         def add(m: NormalizedMatch | None):
-            if m and m.id not in seen:
+            if m and self._is_editorial_match(m) and m.id not in seen:
                 seen.add(m.id)
                 matches.append(m)
 
@@ -93,3 +101,34 @@ class FootballAdapter(BaseScraper):
         FootballAdapter.LAST_RUN = diagnostics
         logger.info(f"[football] TOTAL={len(matches)}")
         return matches
+
+    def _is_editorial_match(self, m: NormalizedMatch) -> bool:
+        comp = normalize_str(m.competition or "")
+        home = normalize_str(m.home_team or "")
+        away = normalize_str(m.away_team or "")
+        rel = m.argentina_relevance or "none"
+
+        # Selección: solo si aparece explícitamente ARG/Argentina
+        if rel == "seleccion":
+            if "argentina" in home or "argentina" in away or home == "arg" or away == "arg":
+                return True
+            return False
+
+        # Club argentino: priorizar competencias locales/regionales
+        if rel == "club_arg":
+            if any(k in comp for k in self.ARG_COMP_KEYWORDS):
+                return True
+            # Si no coincide competencia, igual permitir si ambos son clubes argentinos
+            home_arg = any(k in home for k in ARG_CLUBS.keys())
+            away_arg = any(k in away for k in ARG_CLUBS.keys())
+            if home_arg and away_arg:
+                return True
+            return False
+
+        # Jugador argentino: permitir en exterior salvo torneos claramente de juveniles/reserva
+        if rel == "jugador_arg":
+            if any(k in comp for k in self.NOISE_KEYWORDS):
+                return False
+            return True
+
+        return False
