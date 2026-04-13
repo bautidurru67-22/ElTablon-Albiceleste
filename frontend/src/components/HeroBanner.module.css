@@ -1,54 +1,15 @@
 .hero {
-  background: #e8f4fb;
-  position: relative;
-  overflow: hidden;
-  padding: 28px 16px 24px;
-  border-bottom: 1px solid #c9e3f0;
-  text-align: center;
-}
-
-.waves {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
   width: 100%;
-  height: 70px;
-  pointer-events: none;
+  border-bottom: 1px solid #d8e5f2;
+  background: #eef4fa;
+  display: flex;
+  justify-content: center;
 }
 
-.mapas {
-  position: absolute;
-  right: 4%;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 110px;
-  width: 200px;
-  pointer-events: none;
-  opacity: 0.6;
-}
-
-.inner {
-  position: relative;
-  z-index: 1;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.title {
-  font-family: var(--font-main);
-  font-size: 32px;
-  font-weight: 700;
-  color: #0d3260;
-  letter-spacing: -0.5px;
-  line-height: 1.1;
-}
-
-.accent {
-  color: #1a5fa8;
-}
-
-@media (max-width: 600px) {
-  .title { font-size: 24px; }
-  .mapas { display: none; }
+.bannerImage {
+  width: 876px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
 }
