@@ -20,24 +20,11 @@
   align-items: center;
 }
 
-.logoMark {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.logoIcon {
-  width: 28px;
-  height: 16px;
-  flex-shrink: 0;
-}
-
-.logoText {
-  font-family: var(--font-main);
-  font-size: 15px;
-  font-weight: 700;
-  color: #1a5fa8;
-  letter-spacing: -0.3px;
+.logoImage {
+  width: auto;
+  height: 30px; /* <-- achica el logo */
+  object-fit: contain;
+  display: block;
 }
 
 .right {
@@ -67,4 +54,14 @@
 .iconBtn svg {
   width: 16px;
   height: 16px;
+}
+
+@media (max-width: 640px) {
+  .inner {
+    height: 48px;
+  }
+
+  .logoImage {
+    height: 24px;
+  }
 }
