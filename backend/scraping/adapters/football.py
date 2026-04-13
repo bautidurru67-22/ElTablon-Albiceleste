@@ -242,6 +242,12 @@ class FootballAdapter(BaseScraper):
 
         # Club argentino: priorizar competencias locales/regionales
         if rel == "club_arg":
+            # Regla principal: si detectó club argentino, incluir.
+            # Esto abre cobertura para Primera Nacional/ascenso/copas
+            # aunque la competencia no llegue normalizada.
+            return True
+
+            # (mantenido como referencia editorial, no ejecuta por el return anterior)
             if any(k in comp for k in self.ARG_COMP_KEYWORDS):
                 return True
             # Si no coincide competencia, igual permitir si ambos son clubes argentinos
