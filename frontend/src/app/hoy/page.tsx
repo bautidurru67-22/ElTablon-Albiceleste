@@ -22,14 +22,20 @@ type Match = {
 export default function Home() {
   const [data, setData] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/matches/today`,
+          `/api/proxy/api/matches/today`,
           { cache: "no-store" }
         )
+
+        if (!res.ok) {
+          const body = await res.text()
+          throw new Error(`Proxy ${res.status}: ${body}`)
+        }
 
         const json = await res.json()
 
@@ -45,6 +51,7 @@ export default function Home() {
         }
       } catch (error) {
         console.error("Error:", error)
+        setError(error instanceof Error ? error.message : "Error inesperado")
         setData([])
       } finally {
         setLoading(false)
@@ -60,6 +67,8 @@ export default function Home() {
 
       {loading ? (
         <p>Cargando...</p>
+      ) : error ? (
+        <p style={{ color: "crimson" }}>Error cargando partidos: {error}</p>
       ) : data.length === 0 ? (
         <p>No hay partidos para mostrar.</p>
       ) : (
