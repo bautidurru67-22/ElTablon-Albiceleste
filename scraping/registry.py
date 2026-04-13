@@ -8,12 +8,17 @@ from scraping.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
+# Expuesto para debug API
+LOAD_ERRORS: dict[str, str] = {}
+
 
 def _load(module: str, cls: str):
     try:
         return getattr(importlib.import_module(module), cls)
     except Exception as e:
-        logger.error(f"[registry] no se pudo cargar {cls} desde {module}: {e}")
+        msg = f"{type(e).__name__}: {e}"
+        logger.error(f"[registry] no se pudo cargar {cls} desde {module}: {msg}")
+        LOAD_ERRORS[f"{module}.{cls}"] = msg
         return None
 
 
