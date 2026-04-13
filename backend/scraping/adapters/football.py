@@ -1,69 +1,68 @@
-import httpx
-from datetime import datetime
+"""
+Fútbol argentino (sin mocks).
+Prioridad de fuentes:
+1) Promiedos (local ARG)
+2) AFA (oficial local)
+3) Sofascore (fallback)
+"""
+import logging
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
+from scraping.sources.promiedos import get_today_html, parse_matches
+from scraping.sources.afa import get_fixture_html, parse_fixture
+from scraping.normalizers.promiedos_normalizer import normalize_matches as normalize_promiedos
+from scraping.sources.sofascore import get_events_by_date, get_live_events
+from scraping.normalizers import sofascore_normalizer
+
+logger = logging.getLogger(__name__)
 
 
 class FootballAdapter(BaseScraper):
-    async def scrape(self):
-        matches = []
+    SOURCE_ORDER = ["promiedos", "afa", "sofascore"]
 
-        url = "https://www.espn.com.ar/futbol/agenda"
+    async def scrape(self) -> list[NormalizedMatch]:
+        matches: list[NormalizedMatch] = []
+        seen: set[str] = set()
 
-        async with httpx.AsyncClient(timeout=20) as client:
+        def add(m: NormalizedMatch | None):
+            if m and m.id not in seen:
+                seen.add(m.id)
+                matches.append(m)
+
+        # 1) Promiedos: fuerte para Liga Profesional / Argentina
+        try:
+            html = await get_today_html()
+            raw = parse_matches(html)
+            before = len(matches)
+            for m in normalize_promiedos(raw):
+                add(m)
+            logger.info(f"[football/promiedos] +{len(matches) - before} ({len(raw)} raw)")
+        except Exception as e:
+            logger.warning(f"[football/promiedos] {e}")
+
+        # 2) AFA oficial (fallback 1)
+        if not matches:
             try:
-                res = await client.get(url)
-                html = res.text
+                html = await get_fixture_html()
+                raw = parse_fixture(html or "")
+                before = len(matches)
+                for m in normalize_promiedos(raw):
+                    add(m)
+                logger.info(f"[football/afa] +{len(matches) - before} ({len(raw)} raw)")
             except Exception as e:
-                print(f"[football] error request: {e}")
-                return []
+                logger.warning(f"[football/afa] {e}")
 
-        # ⚠️ Esto es parsing simple para forzar data real
-        if "Argentina" not in html:
-            print("[football] no se detectó contenido esperado")
-            return []
+        # 3) Sofascore fallback para no quedar vacío
+        if not matches:
+            try:
+                before = len(matches)
+                for fn in [get_events_by_date, get_live_events]:
+                    data = await fn("futbol")
+                    for m in sofascore_normalizer.normalize_events(data.get("events", []), "futbol"):
+                        add(m)
+                logger.info(f"[football/sofascore] +{len(matches) - before}")
+            except Exception as e:
+                logger.warning(f"[football/sofascore] {e}")
 
-        # 👉 mock REALISTA temporal basado en agenda real
-        # (sirve para validar sistema completo)
-
-        matches.append(
-            NormalizedMatch(
-                id="test-boca-river",
-                sport="futbol",
-                competition="Liga Argentina",
-                home_team="Boca Juniors",
-                away_team="River Plate",
-                home_score=None,
-                away_score=None,
-                status="upcoming",
-                minute=None,
-                datetime_utc=None,
-                start_time_arg="21:30",
-                argentina_relevance="club_arg",
-                argentina_team="Boca Juniors",
-                broadcast="ESPN",
-            )
-        )
-
-        matches.append(
-            NormalizedMatch(
-                id="test-inter-miami",
-                sport="futbol",
-                competition="MLS",
-                home_team="Inter Miami",
-                away_team="LA Galaxy",
-                home_score=1,
-                away_score=0,
-                status="live",
-                minute="67'",
-                datetime_utc=None,
-                start_time_arg="20:00",
-                argentina_relevance="jugador_arg",
-                argentina_team="Lionel Messi",
-                broadcast="Apple TV",
-            )
-        )
-
-        print(f"[football] matches generados: {len(matches)}")
-
+        logger.info(f"[football] TOTAL={len(matches)}")
         return matches
