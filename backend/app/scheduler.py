@@ -2,13 +2,10 @@
 Scheduler — jobs seguros y separados.
 Si un job falla, la API sigue viva. Logs claros.
 Jobs:
-  job_futbol_live   → cada 40s
-  job_futbol_hoy    → cada 4min
-  job_tenis_hoy     → cada 8min
-  job_basquet_hoy   → cada 8min
-  job_rugby_hoy     → cada 10min
-  job_hockey_hoy    → cada 10min
-  job_hoy_agregador → cada 4min
+  job_futbol_live   → cada 30s
+  job_futbol_hoy    → cada 30s
+  resto de deportes → cada 90s
+  job_hoy_agregador → cada 30s
 """
 import logging
 import time as _time
@@ -19,6 +16,9 @@ from app.cache import cache
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+FAST_INTERVAL_FOOTBALL = 30
+FAST_INTERVAL_AGGREGATOR = 30
+DEFAULT_INTERVAL_OTHERS = 90
 
 
 async def _run_sport(sport: str, status_filter: str | None = None) -> list:
@@ -96,6 +96,12 @@ async def job_hockey_hoy():
     await _cache_sport("today:hockey", "hockey", ttl=settings.cache_ttl_today)
 
 
+def _make_sport_today_job(sport: str):
+    async def _job():
+        await _cache_sport(f"today:{sport}", sport, ttl=settings.cache_ttl_today)
+    return _job
+
+
 async def job_hoy_agregador():
     """
     Agrega todos los deportes en hoy:all.
@@ -148,20 +154,34 @@ def build_scheduler() -> AsyncIOScheduler:
 
     sched = AsyncIOScheduler(timezone="America/Argentina/Buenos_Aires")
 
-    sched.add_job(job_futbol_live,    IntervalTrigger(seconds=40),
+    sched.add_job(job_futbol_live,    IntervalTrigger(seconds=FAST_INTERVAL_FOOTBALL),
                   id="futbol_live",   max_instances=1, misfire_grace_time=10)
-    sched.add_job(job_futbol_hoy,     IntervalTrigger(seconds=240),
+    sched.add_job(job_futbol_hoy,     IntervalTrigger(seconds=FAST_INTERVAL_FOOTBALL),
                   id="futbol_hoy",    max_instances=1, misfire_grace_time=30)
-    sched.add_job(job_tenis_hoy,      IntervalTrigger(seconds=480),
+    sched.add_job(job_tenis_hoy,      IntervalTrigger(seconds=DEFAULT_INTERVAL_OTHERS),
                   id="tenis_hoy",     max_instances=1, misfire_grace_time=30)
-    sched.add_job(job_basquet_hoy,    IntervalTrigger(seconds=480),
+    sched.add_job(job_basquet_hoy,    IntervalTrigger(seconds=DEFAULT_INTERVAL_OTHERS),
                   id="basquet_hoy",   max_instances=1, misfire_grace_time=30)
-    sched.add_job(job_rugby_hoy,      IntervalTrigger(seconds=600),
+    sched.add_job(job_rugby_hoy,      IntervalTrigger(seconds=DEFAULT_INTERVAL_OTHERS),
                   id="rugby_hoy",     max_instances=1, misfire_grace_time=60)
-    sched.add_job(job_hockey_hoy,     IntervalTrigger(seconds=600),
+    sched.add_job(job_hockey_hoy,     IntervalTrigger(seconds=DEFAULT_INTERVAL_OTHERS),
                   id="hockey_hoy",    max_instances=1, misfire_grace_time=60)
-    sched.add_job(job_hoy_agregador,  IntervalTrigger(seconds=240),
+    sched.add_job(job_hoy_agregador,  IntervalTrigger(seconds=FAST_INTERVAL_AGGREGATOR),
                   id="hoy_agregador", max_instances=1, misfire_grace_time=30)
+
+    # Alta rápida de más deportes activos (si existen en settings.active_sports)
+    core_jobs = {"futbol", "tenis", "basquet", "rugby", "hockey"}
+    for sport in settings.active_sports:
+        if sport in core_jobs:
+            continue
+        sched.add_job(
+            _make_sport_today_job(sport),
+            IntervalTrigger(seconds=DEFAULT_INTERVAL_OTHERS),
+            id=f"{sport}_hoy",
+            max_instances=1,
+            misfire_grace_time=60,
+            replace_existing=True,
+        )
 
     jobs = sched.get_jobs()
     logger.info(f"[scheduler] {len(jobs)} jobs: {[j.id for j in jobs]}")
