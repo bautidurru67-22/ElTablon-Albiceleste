@@ -1,40 +1,3 @@
-"""
-Health + debug endpoints.
-/api/health        — siempre vivo
-/api/health/full   — estado del sistema
-/api/debug/scraping — test en vivo, todos los deportes
-"""
-import time
-import logging
-from fastapi import APIRouter
-from app.cache import cache
-
-router = APIRouter()
-logger = logging.getLogger(__name__)
-
-
-@router.get("/health")
-async def health():
-    return {"status": "ok", "service": "tablon-albiceleste-api"}
-
-
-@router.get("/health/full")
-async def health_full():
-    cache_stats = await cache.stats()
-    keys = cache_stats.get("keys", [])
-    lv_keys = cache_stats.get("last_valid_keys", [])
-    return {
-        "status": "ok",
-        "timestamp": time.time(),
-        "cache": {
-            "backend": cache_stats.get("backend"),
-            "active_keys": len(keys),
-            "keys": keys,
-            "last_valid_keys": lv_keys,
-        },
-    }
-
-
 @router.get("/debug/scraping")
 async def debug_scraping(sport: str = "futbol"):
     """
@@ -64,6 +27,7 @@ async def debug_scraping(sport: str = "futbol"):
             return result
         adapter_cls = ADAPTER_REGISTRY[sport]
         result["sources_tried"] = getattr(adapter_cls, "SOURCE_ORDER", [])
+        result["source_diagnostics"] = getattr(adapter_cls, "LAST_RUN", {})
 
         from scraping.orchestrator.coordinator import ScrapingCoordinator
         coord = ScrapingCoordinator({sport: ADAPTER_REGISTRY[sport]}, timeout_per_adapter=25)
@@ -92,40 +56,3 @@ async def debug_scraping(sport: str = "futbol"):
 
     result["duration_ms"] = round((time.monotonic() - t0) * 1000)
     return result
-
-
-@router.get("/debug/all")
-async def debug_all_sports():
-    """Test rápido de todos los deportes activos. Muestra count por deporte."""
-    from app.config import settings
-    t0 = time.monotonic()
-    summary = {}
-
-    try:
-        from app.scraping_bridge import _SCRAPING_OK, _to_match
-        if not _SCRAPING_OK:
-            return {"error": "scraping not importable"}
-
-        from scraping.registry import ADAPTER_REGISTRY
-        from scraping.orchestrator.coordinator import ScrapingCoordinator
-
-        active = {s: ADAPTER_REGISTRY[s] for s in settings.active_sports if s in ADAPTER_REGISTRY}
-        coord = ScrapingCoordinator(active, timeout_per_adapter=20)
-        by_sport = await coord.run_all()
-
-        for sp, matches in by_sport.items():
-            arg = [m for m in matches if m.argentina_relevance != "none"]
-            summary[sp] = {
-                "total": len(matches),
-                "argentina": len(arg),
-                "sample": [{"home": m.home_team, "away": m.away_team, "source": m.source}
-                           for m in arg[:2]],
-            }
-    except Exception as e:
-        logger.error(f"[debug/all] {e}", exc_info=True)
-        summary["error"] = str(e)
-
-    return {
-        "duration_ms": round((time.monotonic() - t0) * 1000),
-        "sports": summary,
-    }
