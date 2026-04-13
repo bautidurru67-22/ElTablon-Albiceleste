@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # CORS
     frontend_url: str = "http://localhost:3000"
 
+    # Branding assets
+    branding_logo_url: str = "/branding/logo-el-tablon-albiceleste.png"
+    branding_banner_url: str = "/branding/banner-donde-juega-argentina.png"
+
     # JWT
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7
