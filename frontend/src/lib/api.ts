@@ -3,6 +3,23 @@ import { Player } from '@/types/player'
 import { TokenResponse, Favorite } from '@/types/auth'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+const IS_SERVER = typeof window === 'undefined'
+const CLIENT_PROXY_BASE = '/api/proxy'
+let hasWarnedMisconfig = false
+
+function warnIfApiMisconfigured() {
+  if (!IS_SERVER || hasWarnedMisconfig) return
+
+  const isLocalFallback = API_BASE.includes('localhost:8000')
+  const isVercelRuntime = Boolean(process.env.VERCEL_URL)
+
+  if (isLocalFallback && isVercelRuntime) {
+    hasWarnedMisconfig = true
+    console.error(
+      '[el-tablon] NEXT_PUBLIC_API_URL no está configurada en Vercel. Se está usando fallback localhost y el sitio puede quedar vacío.'
+    )
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Core fetch — con soporte de auth token
@@ -11,6 +28,7 @@ async function apiFetch<T>(
   path: string,
   options: RequestInit & { revalidate?: number; token?: string } = {}
 ): Promise<T> {
+  warnIfApiMisconfigured()
   const { revalidate = 30, token, ...fetchOpts } = options
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -18,7 +36,8 @@ async function apiFetch<T>(
     ...(fetchOpts.headers ?? {}),
   }
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const target = IS_SERVER ? `${API_BASE}${path}` : `${CLIENT_PROXY_BASE}${path}`
+    const res = await fetch(target, {
       ...fetchOpts,
       headers,
       next: fetchOpts.method ? undefined : { revalidate },
@@ -30,7 +49,8 @@ async function apiFetch<T>(
     return res.json()
   } catch (err) {
     // Server components: log + retornar vacío; client components: relanzar
-    if (typeof window === 'undefined') {
+    if (IS_SERVER) {
+      console.error(`[el-tablon] Error consultando ${API_BASE}${path}`, err)
       return [] as unknown as T
     }
     throw err
