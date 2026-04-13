@@ -2,7 +2,7 @@ import { Match } from '@/types/match'
 import { Player } from '@/types/player'
 import { TokenResponse, Favorite } from '@/types/auth'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL
 const IS_SERVER = typeof window === 'undefined'
 const CLIENT_PROXY_BASE = '/api/proxy'
 let hasWarnedMisconfig = false
@@ -10,15 +10,19 @@ let hasWarnedMisconfig = false
 function warnIfApiMisconfigured() {
   if (!IS_SERVER || hasWarnedMisconfig) return
 
-  const isLocalFallback = API_BASE.includes('localhost:8000')
   const isVercelRuntime = Boolean(process.env.VERCEL_URL)
-
-  if (isLocalFallback && isVercelRuntime) {
+  if (!API_BASE && isVercelRuntime) {
     hasWarnedMisconfig = true
     console.error(
-      '[el-tablon] NEXT_PUBLIC_API_URL no está configurada en Vercel. Se está usando fallback localhost y el sitio puede quedar vacío.'
+      '[el-tablon] NEXT_PUBLIC_API_URL no está configurada en Vercel.'
     )
   }
+}
+
+function getServerProxyTarget(path: string): string | null {
+  const vercelUrl = process.env.VERCEL_URL
+  if (!vercelUrl) return null
+  return `https://${vercelUrl}${CLIENT_PROXY_BASE}${path}`
 }
 
 // ---------------------------------------------------------------------------
@@ -36,12 +40,29 @@ async function apiFetch<T>(
     ...(fetchOpts.headers ?? {}),
   }
   try {
-    const target = IS_SERVER ? `${API_BASE}${path}` : `${CLIENT_PROXY_BASE}${path}`
-    const res = await fetch(target, {
+    const primaryTarget = IS_SERVER ? (API_BASE ? `${API_BASE}${path}` : '') : `${CLIENT_PROXY_BASE}${path}`
+    if (!primaryTarget) {
+      throw new Error('NEXT_PUBLIC_API_URL missing on server runtime')
+    }
+
+    let res = await fetch(primaryTarget, {
       ...fetchOpts,
       headers,
       next: fetchOpts.method ? undefined : { revalidate },
     })
+
+    // En server, fallback al proxy interno si el backend directo falla.
+    if (!res.ok && IS_SERVER) {
+      const fallback = getServerProxyTarget(path)
+      if (fallback) {
+        res = await fetch(fallback, {
+          ...fetchOpts,
+          headers,
+          cache: 'no-store',
+        })
+      }
+    }
+
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.detail ?? `HTTP ${res.status}`)
@@ -50,7 +71,7 @@ async function apiFetch<T>(
   } catch (err) {
     // Server components: log + retornar vacío; client components: relanzar
     if (IS_SERVER) {
-      console.error(`[el-tablon] Error consultando ${API_BASE}${path}`, err)
+      console.error(`[el-tablon] Error consultando ${path}`, err)
       return [] as unknown as T
     }
     throw err
