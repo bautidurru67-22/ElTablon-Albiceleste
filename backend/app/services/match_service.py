@@ -19,7 +19,7 @@ def _sort(matches: list) -> list:
 
 
 async def _read_cache(key: str) -> list[Match]:
-    """Lee cache → last_valid → []. NUNCA scrapea."""
+    """Lee cache → last_valid → warmup puntual → []."""
     data = await cache.get(key)
     if data is not None:
         return data
@@ -27,7 +27,48 @@ async def _read_cache(key: str) -> list[Match]:
     if data is not None:
         logger.debug(f"[match_service] {key}: usando last_valid")
         return data
+    await _warm_cache_for_key(key)
+    data = await cache.get(key)
+    if data is not None:
+        logger.info(f"[match_service] {key}: warmup on-demand OK ({len(data)})")
+        return data
     return []
+
+
+async def _warm_cache_for_key(key: str) -> None:
+    """
+    Si scheduler no precalentó cache (cold start/restart), intenta un warmup puntual.
+    Evita dejar frontend vacío cuando hay datos disponibles en fuentes.
+    """
+    try:
+        from app.scheduler import _run_sport, job_hoy_agregador
+        from app.config import settings
+
+        if key.startswith("today:"):
+            sport = key.split(":", 1)[1]
+            results = await _run_sport(sport)
+            if results:
+                await cache.set(key, results, ttl=settings.cache_ttl_today, source=f"ondemand/{sport}")
+            return
+
+        if key.startswith("live:"):
+            sport = key.split(":", 1)[1]
+            results = await _run_sport(sport, status_filter="live")
+            if results:
+                await cache.set(key, results, ttl=settings.cache_ttl_live, source=f"ondemand/{sport}/live")
+            return
+
+        if key == "hoy:all":
+            # Asegura mínimos deportes core antes de agregar
+            for sport in ("futbol", "tenis", "basquet", "rugby", "hockey"):
+                skey = f"today:{sport}"
+                if await cache.get(skey) is None:
+                    res = await _run_sport(sport)
+                    if res:
+                        await cache.set(skey, res, ttl=settings.cache_ttl_today, source=f"ondemand/{sport}")
+            await job_hoy_agregador()
+    except Exception as e:
+        logger.warning(f"[match_service] warmup on-demand falló para {key}: {e}")
 
 
 # ── Endpoints públicos ──────────────────────────────────────────────────────
