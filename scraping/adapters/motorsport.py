@@ -1,125 +1,122 @@
 """
-Adapter automovilismo — OpenF1 API (real, gratuita) + Sofascore.
-
-OpenF1 es la única API gratuita y oficial para F1 en tiempo real.
-https://openf1.org/
+Automovilismo — F1 con OpenF1 API oficial + Ergast.
+OpenF1: openf1.org — API gratuita, oficial, sin key.
+Ergast: ergast.com — calendario F1, sin key.
 """
 import logging
-from datetime import date, datetime, timezone
+import re
+from datetime import date, datetime, timezone, timedelta
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
-from scraping.sources import sofascore
-from scraping.normalizers import sofascore_normalizer
+from scraping.sources.openf1 import get_current_session, get_current_race_weekend
 
 logger = logging.getLogger(__name__)
 
-OPENF1_SESSIONS = "https://api.openf1.org/v1/sessions?year={year}&date_start>={date}"
-ERGAST_CURRENT  = "https://ergast.com/api/f1/current.json"
+ARG_F1 = {"colapinto", "franco colapinto"}
 
 
 class MotorsportAdapter(BaseScraper):
 
     async def scrape(self) -> list[NormalizedMatch]:
-        matches = []
+        matches: list[NormalizedMatch] = []
 
-        # ── 1. OpenF1 API — sesiones actuales ─────────────────────────────
+        # ── OpenF1 — sesiones activas ──────────────────────────────────────
         try:
             today = date.today()
-            url = f"https://api.openf1.org/v1/sessions?year={today.year}&date_start>={today.isoformat()}"
-            sessions = await self.fetch_json(url)
-            if isinstance(sessions, list):
-                for s in sessions[:3]:  # máximo 3 sesiones hoy
-                    start = s.get("date_start", "")
-                    end   = s.get("date_end", "")
-                    name  = s.get("session_name", "Grand Prix")
-                    location = s.get("location", "")
-                    country  = s.get("country_name", "")
-                    circuit  = f"{location}, {country}".strip(", ")
-                    gp_name  = s.get("meeting_name", name)
-                    full_name = f"F1 — {gp_name} · {name}"
+            import httpx
+            url = (f"https://api.openf1.org/v1/sessions"
+                   f"?date_start>={(today - timedelta(days=1)).isoformat()}"
+                   f"&date_start<={(today + timedelta(days=2)).isoformat()}")
+            async with httpx.AsyncClient(timeout=12) as c:
+                r = await c.get(url)
+                r.raise_for_status()
+                sessions = r.json()
 
-                    status = "upcoming"
-                    try:
-                        dt_start = datetime.fromisoformat(start.replace("Z", "+00:00"))
-                        dt_end   = datetime.fromisoformat(end.replace("Z", "+00:00"))
-                        now = datetime.now(tz=timezone.utc)
-                        if dt_start <= now <= dt_end:
-                            status = "live"
-                        elif now > dt_end:
-                            status = "finished"
-                        arg_h = (dt_start.hour - 3) % 24
-                        start_time_arg = f"{arg_h:02d}:{dt_start.minute:02d}"
-                    except Exception:
-                        start_time_arg = None
+            if not isinstance(sessions, list):
+                sessions = []
 
-                    matches.append(NormalizedMatch(
-                        id=f"motorsport-f1-{s.get('session_key', 'x')}",
-                        sport="motorsport", source="openf1",
-                        competition="Fórmula 1",
-                        home_team=gp_name,
-                        away_team=circuit,
-                        status=status,
-                        start_time_arg=start_time_arg,
-                        argentina_relevance="jugador_arg",
-                        argentina_team="Franco Colapinto",
-                        broadcast="ESPN Premium",
-                        raw=s,
-                    ))
-            logger.info(f"[motorsport/openf1] {len(matches)} sesiones F1")
+            for s in sessions:
+                start_str = s.get("date_start", "")
+                end_str   = s.get("date_end", "")
+                session_name = s.get("session_name", "Sesión")
+                gp_name = s.get("meeting_name", "Grand Prix")
+                circuit = s.get("circuit_short_name", s.get("location", ""))
+                country = s.get("country_name", "")
+
+                status = "upcoming"
+                start_time_arg = None
+                try:
+                    dt_s = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                    dt_e = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                    now = datetime.now(tz=timezone.utc)
+                    if dt_s <= now <= dt_e:
+                        status = "live"
+                    elif now > dt_e:
+                        status = "finished"
+                    start_time_arg = f"{(dt_s.hour - 3) % 24:02d}:{dt_s.minute:02d}"
+                except Exception:
+                    pass
+
+                mid = re.sub(r"\W+", "-", f"{gp_name}-{session_name}")[:40].lower()
+                matches.append(NormalizedMatch(
+                    id=f"motorsport-f1-{mid}",
+                    sport="motorsport", source="openf1",
+                    competition=f"F1 — {gp_name}",
+                    home_team=session_name,
+                    away_team=f"{circuit}, {country}".strip(", "),
+                    status=status,
+                    start_time_arg=start_time_arg,
+                    argentina_relevance="jugador_arg",
+                    argentina_team="Franco Colapinto",
+                    broadcast="ESPN Premium",
+                    raw=s,
+                ))
+            logger.info(f"[motorsport/openf1] {len(matches)} sesiones")
         except Exception as e:
             logger.warning(f"[motorsport/openf1] {e}")
 
-        # ── 2. Ergast F1 calendario (si OpenF1 vacío) ─────────────────────
+        # ── Ergast fallback si no hay sesiones ────────────────────────────
         if not matches:
             try:
-                data = await self.fetch_json(ERGAST_CURRENT)
-                races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
+                import httpx
+                year = date.today().year
                 today = date.today()
+                async with httpx.AsyncClient(timeout=12) as c:
+                    r = await c.get(f"https://ergast.com/api/f1/{year}.json")
+                    r.raise_for_status()
+                    races = r.json().get("MRData", {}).get("RaceTable", {}).get("Races", [])
                 for race in races:
                     rd = race.get("date", "")
-                    if not rd:
+                    try:
+                        race_date = date.fromisoformat(rd)
+                    except Exception:
                         continue
-                    race_date = date.fromisoformat(rd)
-                    if abs((race_date - today).days) <= 2:
-                        name = race.get("raceName", "Grand Prix")
-                        circuit = race.get("Circuit", {}).get("circuitName", "")
-                        start_time = race.get("time", "")
-                        arg_h_str = None
-                        if start_time:
-                            try:
-                                h = int(start_time[:2])
-                                m = int(start_time[3:5])
-                                arg_h_str = f"{(h-3)%24:02d}:{m:02d}"
-                            except Exception:
-                                pass
-                        status = "finished" if race_date < today else "upcoming"
-                        matches.append(NormalizedMatch(
-                            id=f"motorsport-f1-ergast-{rd}",
-                            sport="motorsport", source="ergast",
-                            competition="Fórmula 1",
-                            home_team=name, away_team=circuit,
-                            status=status,
-                            start_time_arg=arg_h_str,
-                            argentina_relevance="jugador_arg",
-                            argentina_team="Franco Colapinto",
-                            broadcast="ESPN Premium",
-                            raw=race,
-                        ))
-                logger.info(f"[motorsport/ergast] {len(matches)} carreras F1")
+                    if abs((race_date - today).days) > 3:
+                        continue
+                    status = "finished" if race_date < today else "upcoming"
+                    gp = race.get("raceName", "Grand Prix")
+                    circuit = race.get("Circuit", {}).get("circuitName", "")
+                    t = race.get("time", "")
+                    start_time_arg = None
+                    if t and ":" in t:
+                        try:
+                            h, m = int(t[:2]), int(t[3:5])
+                            start_time_arg = f"{(h-3)%24:02d}:{m:02d}"
+                        except Exception:
+                            pass
+                    matches.append(NormalizedMatch(
+                        id=f"motorsport-ergast-{rd}",
+                        sport="motorsport", source="ergast",
+                        competition="Fórmula 1",
+                        home_team=gp, away_team=circuit,
+                        status=status, start_time_arg=start_time_arg,
+                        argentina_relevance="jugador_arg",
+                        argentina_team="Franco Colapinto",
+                        broadcast="ESPN Premium", raw=race,
+                    ))
+                logger.info(f"[motorsport/ergast] {len(matches)}")
             except Exception as e:
                 logger.warning(f"[motorsport/ergast] {e}")
-
-        # ── 3. Sofascore (Turismo Carretera, TC2000, etc.) ─────────────────
-        try:
-            data = await sofascore.get_events_by_date("motorsport")
-            events = data.get("events", [])
-            ss = sofascore_normalizer.normalize_events(events, "motorsport")
-            existing = {m.id for m in matches}
-            new = [m for m in ss if m.id not in existing]
-            logger.info(f"[motorsport/sofascore] {len(new)} con ARG")
-            matches.extend(new)
-        except Exception as e:
-            logger.warning(f"[motorsport/sofascore] {e}")
 
         logger.info(f"[motorsport] TOTAL {len(matches)}")
         return matches

@@ -1,114 +1,118 @@
 """
-Adapter de tenis argentino.
+Tenis argentino.
 
 Fuentes:
-1. Sofascore scheduled (tenis)  — fixture del día
-2. Sofascore live               — partidos en vivo
-3. ATP Tour HTML                — fallback si Sofascore falla
-
-Filtra solo partidos con jugadores argentinos (ARG_PLAYERS).
+1. ATP Tour JSON interno — scores en vivo y del día
+2. TheSportsDB           — fixtures ATP/WTA
+3. Sofascore             — fallback
 """
 import logging
 import re
-from bs4 import BeautifulSoup
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
-from scraping.sources import sofascore
-from scraping.normalizers import sofascore_normalizer, tennis_normalizer
-from scraping.argentina import ARG_PLAYERS
+from scraping.argentina import detect_argentina_relevance, normalize_str, ARG_PLAYERS
+from scraping.sources.atp_live import get_live_scores
+from scraping.sources.thesportsdb import get_events_today, parse_event
+from scraping.sources.sofascore_safe import get_events_by_date as ss_today, get_live_events as ss_live
+from scraping.normalizers import sofascore_normalizer
 
 logger = logging.getLogger(__name__)
 
-ATP_SCORES_URL = "https://www.atptour.com/en/scores/current"
+# IDs TheSportsDB para tenis
+TSDB_TENNIS = {4926: "ATP Tour", 4927: "WTA Tour"}
+
+ARG_LOWER = {normalize_str(k) for k in ARG_PLAYERS.keys()}
+
+
+def _is_arg(name: str) -> bool:
+    n = normalize_str(name)
+    return any(a in n for a in ARG_LOWER)
+
+
+def _make_tennis_match(home: str, away: str, comp: str,
+                       status: str, raw: dict, source: str) -> NormalizedMatch | None:
+    if not home or not away:
+        return None
+    if not _is_arg(home) and not _is_arg(away):
+        return None
+    relevance = "jugador_arg"
+    arg_team = home if _is_arg(home) else away
+    h_n = re.sub(r"\W+", "-", normalize_str(home))[:20]
+    a_n = re.sub(r"\W+", "-", normalize_str(away))[:20]
+    return NormalizedMatch(
+        id=f"tenis-{source}-{h_n}-{a_n}",
+        sport="tenis",
+        source=source,
+        competition=comp or "ATP Tour",
+        home_team=home,
+        away_team=away,
+        home_score=raw.get("home_score"),
+        away_score=raw.get("away_score"),
+        score_detail=raw.get("score_detail", ""),
+        status=status,
+        minute=raw.get("minute"),
+        start_time_arg=raw.get("start_time"),
+        argentina_relevance=relevance,
+        argentina_team=arg_team,
+        raw=raw,
+    )
 
 
 class TennisAdapter(BaseScraper):
-    EXTRA_HEADERS = {"Referer": "https://www.sofascore.com/"}
 
     async def scrape(self) -> list[NormalizedMatch]:
         matches: list[NormalizedMatch] = []
+        seen: set[str] = set()
 
-        # ── Fuente 1: Sofascore scheduled ─────────────────────────────────
+        def _add(m: NormalizedMatch | None) -> None:
+            if m and m.id not in seen:
+                seen.add(m.id)
+                matches.append(m)
+
+        # ── 1. ATP Tour JSON (primario) ───────────────────────────────────
         try:
-            data = await sofascore.get_events_by_date("tenis")
-            events = data.get("events", [])
-            ss = sofascore_normalizer.normalize_events(events, "tenis")
-            logger.info(f"[tennis/sofascore-scheduled] {len(ss)} con ARG")
-            matches.extend(ss)
+            atp_matches = await get_live_scores()
+            for raw in atp_matches:
+                m = _make_tennis_match(
+                    raw.get("home", ""), raw.get("away", ""),
+                    raw.get("competition", ""), raw.get("status", "upcoming"),
+                    raw, "atptour"
+                )
+                _add(m)
+            logger.info(f"[tennis/atptour] {len(matches)}")
         except Exception as e:
-            logger.warning(f"[tennis/sofascore-scheduled] falló: {e}")
+            logger.warning(f"[tennis/atptour] {e}")
 
-        # ── Fuente 2: Sofascore live ───────────────────────────────────────
+        # ── 2. TheSportsDB ────────────────────────────────────────────────
         try:
-            data = await sofascore.get_live_events("tenis")
-            events = data.get("events", [])
-            live = sofascore_normalizer.normalize_events(events, "tenis")
-            existing = {m.id for m in matches}
-            new_live = [m for m in live if m.id not in existing]
-            logger.info(f"[tennis/sofascore-live] {len(new_live)} en vivo")
-            matches.extend(new_live)
+            before = len(matches)
+            for lid, lname in TSDB_TENNIS.items():
+                events = await get_events_today(lid)
+                for ev in events:
+                    raw = parse_event(ev, "tenis")
+                    m = _make_tennis_match(
+                        raw.get("home", ""), raw.get("away", ""),
+                        raw.get("competition") or lname,
+                        raw.get("status", "upcoming"), raw, "tsdb"
+                    )
+                    _add(m)
+            logger.info(f"[tennis/thesportsdb] {len(matches) - before}")
         except Exception as e:
-            logger.warning(f"[tennis/sofascore-live] falló: {e}")
+            logger.warning(f"[tennis/thesportsdb] {e}")
 
-        # ── Fuente 3: ATP HTML (solo si Sofascore falló completamente) ─────
+        # ── 3. Sofascore fallback ─────────────────────────────────────────
         if not matches:
             try:
-                html = await self.fetch_html(ATP_SCORES_URL)
-                raws = self._parse_atp(html)
-                atp = tennis_normalizer.normalize_matches(raws)
-                arg = [m for m in atp if m.argentina_relevance != "none"]
-                logger.info(f"[tennis/atp-fallback] {len(arg)} con ARG")
-                matches.extend(arg)
+                for fn in [ss_today, ss_live]:
+                    data = await fn("tenis")
+                    ss = sofascore_normalizer.normalize_events(data.get("events", []), "tenis")
+                    for m in ss:
+                        if m.id not in seen:
+                            seen.add(m.id)
+                            matches.append(m)
+                logger.info(f"[tennis/sofascore-fallback] {len(matches)}")
             except Exception as e:
-                logger.warning(f"[tennis/atp-fallback] falló: {e}")
+                logger.warning(f"[tennis/sofascore] {e}")
 
-        logger.info(f"[tennis] TOTAL: {len(matches)} partidos")
+        logger.info(f"[tennis] TOTAL {len(matches)}")
         return matches
-
-    def _parse_atp(self, html: str) -> list[dict]:
-        soup = BeautifulSoup(html, "lxml")
-        raws = []
-        arg_lower = set(ARG_PLAYERS.keys())
-
-        for match_div in soup.select(
-            "div.match-ctr, div.scores-day-match, li.match, div[class*='match']"
-        ):
-            try:
-                player_tags = match_div.select(".player-name, .name, .player, [class*='player']")
-                if len(player_tags) < 2:
-                    continue
-                p1 = player_tags[0].get_text(strip=True)
-                p2 = player_tags[1].get_text(strip=True)
-                p1l, p2l = p1.lower(), p2.lower()
-                if not any(a in p1l or a in p2l for a in arg_lower):
-                    continue
-
-                score_tag = match_div.select_one(".score, .sets, .match-score")
-                status_tag = match_div.select_one(".status, .match-status")
-                comp_tag = match_div.find_previous(
-                    ["div", "h2", "h3"],
-                    class_=["tournament-name", "event-header", "tourn-name"]
-                )
-
-                score_raw = score_tag.get_text(strip=True) if score_tag else ""
-                status_text = status_tag.get_text(strip=True).lower() if status_tag else ""
-                competition = comp_tag.get_text(strip=True) if comp_tag else "ATP Tour"
-
-                if "live" in status_text or "in progress" in status_text:
-                    status = "live"
-                elif score_raw:
-                    status = "finished"
-                else:
-                    status = "upcoming"
-
-                raws.append({
-                    "player1": p1,
-                    "player2": p2,
-                    "score_raw": score_raw,
-                    "status": status,
-                    "competition": competition,
-                    "source": "atptour",
-                })
-            except Exception:
-                continue
-        return raws

@@ -1,80 +1,76 @@
 """
-Adapter vóley.
-1. Sofascore (primary para internacionales)
-2. voley.org.ar — liga argentina
-3. fivb.com — selección argentina
+Vóley argentino.
+
+Fuentes:
+1. TheSportsDB — FIVB, Liga Argentina
+2. Sofascore   — fallback
 """
 import logging
 import re
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
-from scraping.sources import sofascore
-from scraping.normalizers import sofascore_normalizer
 from scraping.argentina import detect_argentina_relevance, normalize_str
+from scraping.sources.thesportsdb import get_events_today, parse_event
+from scraping.sources.sofascore_safe import get_events_by_date as ss_today, get_live_events as ss_live
+from scraping.normalizers import sofascore_normalizer
 
 logger = logging.getLogger(__name__)
 
-VOLEY_ARG_URL = "https://www.voley.org.ar/competencias"
-FIVB_URL = "https://www.fivb.com/en/volleyball/competitions"
+TSDB_VOLEY = {5028: "FIVB Volleyball"}
+
+
+def _make_match(raw: dict, source: str) -> NormalizedMatch | None:
+    home = raw.get("home", "").strip()
+    away = raw.get("away", "").strip()
+    if not home or not away:
+        return None
+    comp = raw.get("competition", "") or ""
+    relevance, arg_team = detect_argentina_relevance(home, away, comp, "voley")
+    if relevance == "none":
+        return None
+    h_n = re.sub(r"\W+", "-", normalize_str(home))[:20]
+    a_n = re.sub(r"\W+", "-", normalize_str(away))[:20]
+    return NormalizedMatch(
+        id=f"voley-{source}-{h_n}-{a_n}",
+        sport="voley", source=source, competition=comp or "Vóley",
+        home_team=home, away_team=away,
+        home_score=raw.get("home_score"), away_score=raw.get("away_score"),
+        status=raw.get("status", "upcoming"), start_time_arg=raw.get("start_time"),
+        argentina_relevance=relevance, argentina_team=arg_team, raw=raw,
+    )
 
 
 class VolleyballAdapter(BaseScraper):
+
     async def scrape(self) -> list[NormalizedMatch]:
-        matches = []
+        matches: list[NormalizedMatch] = []
+        seen: set[str] = set()
 
-        for fn, label in [
-            (lambda: sofascore.get_events_by_date("voley"), "scheduled"),
-            (lambda: sofascore.get_live_events("voley"), "live"),
-        ]:
-            try:
-                data = await fn()
-                events = data.get("events", [])
-                ss = sofascore_normalizer.normalize_events(events, "voley")
-                existing = {m.id for m in matches}
-                new = [m for m in ss if m.id not in existing]
-                logger.info(f"[volleyball/ss-{label}] {len(new)}")
-                matches.extend(new)
-            except Exception as e:
-                logger.warning(f"[volleyball/ss-{label}] {e}")
+        def _add(m):
+            if m and m.id not in seen:
+                seen.add(m.id)
+                matches.append(m)
 
-        # voley.org.ar fallback
+        try:
+            for lid, lname in TSDB_VOLEY.items():
+                for ev in await get_events_today(lid):
+                    raw = parse_event(ev, "voley")
+                    raw["competition"] = raw.get("competition") or lname
+                    _add(_make_match(raw, "tsdb"))
+            logger.info(f"[volleyball/tsdb] {len(matches)}")
+        except Exception as e:
+            logger.warning(f"[volleyball/tsdb] {e}")
+
         if not matches:
             try:
-                html = await self.fetch_html(VOLEY_ARG_URL)
-                local = self._parse_voley_ar(html)
-                logger.info(f"[volleyball/voley.org.ar] {len(local)}")
-                matches.extend(local)
+                for fn in [ss_today, ss_live]:
+                    data = await fn("voley")
+                    for m in sofascore_normalizer.normalize_events(data.get("events", []), "voley"):
+                        if m.id not in seen:
+                            seen.add(m.id); matches.append(m)
+                logger.info(f"[volleyball/sofascore] {len(matches)}")
             except Exception as e:
-                logger.warning(f"[volleyball/voley.org.ar] {e}")
+                logger.warning(f"[volleyball/sofascore] {e}")
 
         logger.info(f"[volleyball] TOTAL {len(matches)}")
         return matches
-
-    def _parse_voley_ar(self, html: str) -> list[NormalizedMatch]:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "lxml")
-        results = []
-        comp = "Liga de Voleibol Argentina"
-        for row in soup.select("div.partido, div.match, tr.match-row, article.game"):
-            try:
-                h_el = row.select_one(".local, .home, .equipo-a, .team-home")
-                a_el = row.select_one(".visitante, .away, .equipo-b, .team-away")
-                if not h_el or not a_el:
-                    continue
-                h, a = h_el.get_text(strip=True), a_el.get_text(strip=True)
-                if not h or not a:
-                    continue
-                relevance, arg_team = detect_argentina_relevance(h, a, comp, "voley")
-                if relevance == "none":
-                    continue
-                h_n = re.sub(r"\W+", "-", normalize_str(h))[:20]
-                a_n = re.sub(r"\W+", "-", normalize_str(a))[:20]
-                results.append(NormalizedMatch(
-                    id=f"voley-ar-{h_n}-{a_n}",
-                    sport="voley", source="voley.org.ar", competition=comp,
-                    home_team=h, away_team=a, status="upcoming",
-                    argentina_relevance=relevance, argentina_team=arg_team, raw={},
-                ))
-            except Exception:
-                continue
-        return results

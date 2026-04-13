@@ -1,6 +1,5 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
-import os
 
 
 class Settings(BaseSettings):
@@ -13,7 +12,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/tablon"
     database_url_sync: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/tablon"
 
-    # Redis (opcional — fallback a MemoryCache si no está configurado)
+    # Redis (opcional)
     redis_url: str = ""
 
     # CORS
@@ -21,18 +20,20 @@ class Settings(BaseSettings):
 
     # JWT
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24 * 7  # 7 días
+    access_token_expire_minutes: int = 60 * 24 * 7
 
     # Scraping
     scraping_enabled: bool = True
     scraping_timeout: int = 25
 
-    # Scheduler intervals (segundos)
-    scheduler_live_interval: int = 45
-    scheduler_today_interval: int = 300
-    scheduler_results_interval: int = 600
+    # Deportes activos en el agregador /api/hoy
+    active_sports: list[str] = [
+        "futbol", "tenis", "basquet", "rugby",
+        "hockey", "voley", "handball", "futsal",
+        "boxeo", "golf", "motorsport", "motogp",
+    ]
 
-    # Cache TTLs
+    # Cache TTLs (segundos)
     cache_ttl_live: int = 30
     cache_ttl_today: int = 300
     cache_ttl_results: int = 600

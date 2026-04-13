@@ -1,6 +1,6 @@
 """
-Match service — pipeline cache → scrapers → [].
-Sin mocks. Sin datos inventados.
+Match service — SOLO LEE CACHE. Nunca scrapea en request.
+Si cache vacío → get_last_valid → [] como último recurso.
 """
 import logging
 from app.models.match import Match
@@ -11,72 +11,96 @@ logger = logging.getLogger(__name__)
 STATUS_ORDER = {"live": 0, "upcoming": 1, "finished": 2}
 
 
-def _sort(matches: list[Match]) -> list[Match]:
+def _sort(matches: list) -> list:
     return sorted(
         matches,
         key=lambda m: (STATUS_ORDER.get(m.status, 9), m.start_time or "")
     )
 
 
-async def _fetch(cache_key: str, scrape_fn) -> list[Match]:
-    cached = await cache.get(cache_key)
-    if cached is not None:
-        logger.debug(f"[match_service] hit {cache_key}: {len(cached)}")
-        return cached
+async def _read_cache(key: str) -> list[Match]:
+    """Lee cache → last_valid → []. NUNCA scrapea."""
+    data = await cache.get(key)
+    if data is not None:
+        return data
+    data = await cache.get_last_valid(key)
+    if data is not None:
+        logger.debug(f"[match_service] {key}: usando last_valid")
+        return data
+    return []
 
-    logger.info(f"[match_service] miss {cache_key} — scraping")
-    try:
-        results = await scrape_fn()
-        ttl = cache.ttl_for(cache_key.split(":")[0])
-        if results:
-            await cache.set(cache_key, results, ttl=ttl)
-        logger.info(f"[match_service] {cache_key} → {len(results)} (ttl={ttl}s)")
-        return results
-    except Exception as e:
-        logger.error(f"[match_service] {cache_key} scraping error: {e}", exc_info=True)
-        return []
 
+# ── Endpoints públicos ──────────────────────────────────────────────────────
+
+async def get_hoy() -> dict:
+    """Agenda completa del día — lee hoy:all del agregador."""
+    matches: list[Match] = await _read_cache("hoy:all")
+    live      = [m for m in matches if m.status == "live"]
+    upcoming  = [m for m in matches if m.status == "upcoming"]
+    finished  = [m for m in matches if m.status == "finished"]
+    return {
+        "en_vivo":    _sort(live),
+        "proximos":   _sort(upcoming),
+        "finalizados": _sort(finished),
+        "total":      len(matches),
+    }
+
+
+async def get_futbol_hoy() -> list[Match]:
+    return _sort(await _read_cache("today:futbol"))
+
+
+async def get_futbol_live() -> list[Match]:
+    data = await _read_cache("live:futbol")
+    return [m for m in data if m.status == "live"]
+
+
+async def get_tenis_hoy() -> list[Match]:
+    return _sort(await _read_cache("today:tenis"))
+
+
+async def get_basquet_hoy() -> list[Match]:
+    return _sort(await _read_cache("today:basquet"))
+
+
+async def get_rugby_hoy() -> list[Match]:
+    return _sort(await _read_cache("today:rugby"))
+
+
+async def get_hockey_hoy() -> list[Match]:
+    return _sort(await _read_cache("today:hockey"))
+
+
+async def get_sport_hoy(sport: str) -> list[Match]:
+    return _sort(await _read_cache(f"today:{sport}"))
+
+
+# ── Compat con rutas viejas /api/matches/* ──────────────────────────────────
 
 async def get_live_matches(sport: str | None = None) -> list[Match]:
-    from app.scraping_bridge import fetch_live_from_scrapers
-    key = f"live:{sport or 'all'}"
-    matches = await _fetch(key, lambda: fetch_live_from_scrapers(
-        sports=[sport] if sport else None
-    ))
-    result = [m for m in matches if m.status == "live"]
     if sport:
-        result = [m for m in result if m.sport == sport]
-    return result
+        data = await _read_cache(f"live:{sport}")
+        return [m for m in data if m.status == "live"]
+    data = await _read_cache("live:futbol")
+    return [m for m in data if m.status == "live"]
 
 
 async def get_today_matches(sport: str | None = None) -> list[Match]:
-    from app.scraping_bridge import fetch_today_from_scrapers
-    key = f"today:{sport or 'all'}"
-    matches = await _fetch(key, lambda: fetch_today_from_scrapers(
-        sports=[sport] if sport else None
-    ))
     if sport:
-        matches = [m for m in matches if m.sport == sport]
-    return _sort(matches)
+        return await get_sport_hoy(sport)
+    hoy = await get_hoy()
+    return _sort(hoy["en_vivo"] + hoy["proximos"] + hoy["finalizados"])
 
 
 async def get_results_matches(sport: str | None = None) -> list[Match]:
-    from app.scraping_bridge import fetch_results_from_scrapers
-    key = f"results:{sport or 'all'}"
-    matches = await _fetch(key, lambda: fetch_results_from_scrapers(
-        sports=[sport] if sport else None
-    ))
-    result = [m for m in matches if m.status == "finished"]
-    if sport:
-        result = [m for m in result if m.sport == sport]
-    return _sort(result)
+    matches = await get_today_matches(sport)
+    return [m for m in matches if m.status == "finished"]
 
 
 async def get_argentina_matches() -> list[Match]:
-    from app.scraping_bridge import fetch_today_from_scrapers
-    key = "argentina:all"
-    matches = await _fetch(key, fetch_today_from_scrapers)
-    return _sort([m for m in matches if m.argentina_relevance != "none"])
+    hoy = await get_hoy()
+    all_m = hoy["en_vivo"] + hoy["proximos"] + hoy["finalizados"]
+    return _sort([m for m in all_m if getattr(m, "argentina_relevance", "none") != "none"])
 
 
 async def get_club_matches(club_id: str) -> list[Match]:
