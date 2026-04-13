@@ -21,11 +21,23 @@ def _load(module: str, cls: str):
         return None
 
 
-# IMPORTANTE:
-# Dejamos SOLO futbol para validar el pipeline real
-# antes de volver a sumar el resto de los deportes.
 _MAP = {
     "futbol": ("scraping.adapters.football", "FootballAdapter"),
+    "tenis": ("scraping.adapters.tennis", "TennisAdapter"),
+    "basquet": ("scraping.adapters.basketball", "BasketballAdapter"),
+    "rugby": ("scraping.adapters.rugby", "RugbyAdapter"),
+    "hockey": ("scraping.adapters.hockey", "HockeyAdapter"),
+    "voley": ("scraping.adapters.volleyball", "VolleyballAdapter"),
+    "handball": ("scraping.adapters.handball", "HandballAdapter"),
+    "futsal": ("scraping.adapters.futsal", "FutsalAdapter"),
+    "motorsport": ("scraping.adapters.motorsport", "MotorsportAdapter"),
+    "motogp": ("scraping.adapters.motogp", "MotoGPAdapter"),
+    "boxeo": ("scraping.adapters.boxing", "BoxingAdapter"),
+    "golf": ("scraping.adapters.golf", "GolfAdapter"),
+    "esports": ("scraping.adapters.esports", "EsportsAdapter"),
+    "polo": ("scraping.adapters.polo", "PoloAdapter"),
+    "dakar": ("scraping.adapters.dakar", "DakarAdapter"),
+    "olimpicos": ("scraping.adapters.olympics", "OlympicsAdapter"),
 }
 
 ADAPTER_REGISTRY: dict[str, type[BaseScraper]] = {}
