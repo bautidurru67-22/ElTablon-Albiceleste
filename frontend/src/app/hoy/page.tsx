@@ -61,6 +61,10 @@ export default function Home() {
     fetchData()
   }, [])
 
+  const live = data.filter((m) => m.status === "live")
+  const upcoming = data.filter((m) => m.status === "upcoming")
+  const finished = data.filter((m) => m.status === "finished")
+
   return (
     <main style={{ padding: "24px" }}>
       <h1>HOY - Agenda deportiva</h1>
@@ -72,7 +76,50 @@ export default function Home() {
       ) : data.length === 0 ? (
         <p>No hay partidos para mostrar.</p>
       ) : (
-        <pre>{JSON.stringify(data, null, 2)}</pre>
+        <div style={{ display: "grid", gap: 18 }}>
+          <section>
+            <h2 style={{ marginBottom: 8 }}>En vivo ({live.length})</h2>
+            {live.length === 0 ? <p>Sin partidos en vivo.</p> : (
+              <ul>
+                {live.map((m) => (
+                  <li key={m.id}>
+                    <strong>{m.home_team}</strong> {m.home_score ?? "-"} - {m.away_score ?? "-"} <strong>{m.away_team}</strong>
+                    {" · "}
+                    {m.minute ?? "EN VIVO"}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section>
+            <h2 style={{ marginBottom: 8 }}>Próximos ({upcoming.length})</h2>
+            {upcoming.length === 0 ? <p>Sin próximos partidos.</p> : (
+              <ul>
+                {upcoming.map((m) => (
+                  <li key={m.id}>
+                    <strong>{m.home_team}</strong> vs <strong>{m.away_team}</strong>
+                    {" · "}
+                    {m.start_time ?? "Horario a confirmar"}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section>
+            <h2 style={{ marginBottom: 8 }}>Finalizados ({finished.length})</h2>
+            {finished.length === 0 ? <p>Sin finalizados.</p> : (
+              <ul>
+                {finished.map((m) => (
+                  <li key={m.id}>
+                    <strong>{m.home_team}</strong> {m.home_score ?? "-"} - {m.away_score ?? "-"} <strong>{m.away_team}</strong>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       )}
     </main>
   )
