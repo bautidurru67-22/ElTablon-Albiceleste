@@ -10,6 +10,7 @@ import styles from './deporte.module.css'
 import FollowButton from '@/components/FollowButton'
 
 export const revalidate = 30
+export const dynamic = 'force-dynamic'
 
 interface Props {
   params: { sport: string }
