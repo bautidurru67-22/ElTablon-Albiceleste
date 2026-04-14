@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL
+const API_BASE =
+  process.env.API_URL ||
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://localhost:8000'
 
 function getTargetUrl(path: string[], req: NextRequest) {
-  if (!API_BASE) {
-    throw new Error('NEXT_PUBLIC_API_URL no configurada')
-  }
   const clean = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE
   const target = new URL(`${clean}/${path.join('/')}`)
   req.nextUrl.searchParams.forEach((value, key) => {
@@ -22,8 +23,8 @@ async function proxy(req: NextRequest, ctx: { params: { path: string[] } }) {
     const upstream = await fetch(target.toString(), {
       method: req.method,
       headers: {
-        'Content-Type': req.headers.get('content-type') ?? 'application/json',
-        Authorization: req.headers.get('authorization') ?? '',
+        ...(req.headers.get('content-type') ? { 'Content-Type': req.headers.get('content-type')! } : {}),
+        ...(req.headers.get('authorization') ? { Authorization: req.headers.get('authorization')! } : {}),
       },
       body,
       cache: 'no-store',
