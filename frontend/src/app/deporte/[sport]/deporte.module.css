@@ -133,3 +133,23 @@
   .matchTableHeader, .matchTableRow { grid-template-columns: 64px 1fr 80px; }
   .matchTableHeader span:nth-child(2), .matchTableRow .colComp { display: none; }
 }
+
+.basketHeaderRow { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.compLinks { display: flex; gap: 8px; flex-wrap: wrap; }
+.compLinks a { font-size: 11px; color: var(--color-text-muted); text-decoration: none; border-bottom: 1px solid transparent; }
+.compLinks a:hover { color: var(--color-primary-dark); }
+.compActive { color: var(--color-primary-dark) !important; border-bottom-color: var(--color-primary-dark) !important; font-weight: 700; }
+.twoColBasket { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.standingsTable { display: grid; gap: 4px; }
+.standingHead, .standingRow { display: grid; grid-template-columns: 24px 1fr 34px 34px; gap: 6px; align-items: center; font-size: 11px; }
+.standingHead { font-size: 10px; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700; border-bottom: 0.5px solid var(--color-border); padding-bottom: 4px; }
+.standingTeam { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fixtureList { display: grid; gap: 2px; }
+.fixtureRow { display: flex; justify-content: space-between; gap: 8px; border-bottom: 0.5px solid var(--color-border); padding: 4px 0; }
+.fixtureTeams { font-size: 11px; }
+.fixtureMeta { font-size: 10px; color: var(--color-text-muted); white-space: nowrap; }
+
+@media (max-width: 700px) {
+  .twoColBasket { grid-template-columns: 1fr; }
+  .basketHeaderRow { align-items: flex-start; flex-direction: column; }
+}
