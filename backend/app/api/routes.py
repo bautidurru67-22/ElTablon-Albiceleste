@@ -25,3 +25,17 @@ try:
     router.include_router(players.router, prefix="/players", tags=["players"])
 except Exception:
     pass
+
+
+try:
+    from app.api import basketball
+    router.include_router(basketball.router, prefix="/basketball", tags=["basketball"])
+except Exception:
+    pass
+
+
+try:
+    from app.api import football
+    router.include_router(football.router, prefix="/football", tags=["football"])
+except Exception:
+    pass
