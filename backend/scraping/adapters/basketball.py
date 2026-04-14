@@ -30,6 +30,9 @@ ARG_NBA_PLAYERS_NORM = {
 
 
 class BasketballAdapter(BaseScraper):
+    SOURCE_ORDER = ["nba", "lnb", "sofascore_scheduled", "sofascore_live"]
+    DIAG_VERSION = "basketball-diag-v1-2026-04-14"
+    LAST_RUN: dict = {}
 
     async def scrape(self) -> list[NormalizedMatch]:
         matches: list[NormalizedMatch] = []
@@ -81,6 +84,8 @@ class BasketballAdapter(BaseScraper):
             data = await sofascore.get_events_by_date("basquet")
             events = data.get("events", [])
             ss = sofascore_normalizer.normalize_events(events, "basquet")
+            if not ss:
+                ss = sofascore_normalizer.normalize_events_all(events, "basquet")
             existing = {m.id for m in matches}
             new = [m for m in ss if m.id not in existing]
             logger.info(f"[basketball/ss-sched] {len(new)}")
@@ -93,6 +98,8 @@ class BasketballAdapter(BaseScraper):
             data = await sofascore.get_live_events("basquet")
             events = data.get("events", [])
             live = sofascore_normalizer.normalize_events(events, "basquet")
+            if not live:
+                live = sofascore_normalizer.normalize_events_all(events, "basquet")
             existing = {m.id for m in matches}
             new = [m for m in live if m.id not in existing]
             logger.info(f"[basketball/ss-live] {len(new)}")
