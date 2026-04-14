@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import styles from "./hoy.module.css"
 
 type Match = {
   id: string
@@ -19,49 +20,39 @@ type Match = {
   broadcast?: string | null
 }
 
+const isLive = (m: Match) => {
+  const s = (m.status || "").toLowerCase()
+  return ["live", "en vivo", "in_progress", "playing"].some((k) => s.includes(k)) || !!m.minute
+}
+
+const isFinished = (m: Match) => {
+  const s = (m.status || "").toLowerCase()
+  return ["finished", "final", "ft", "ended"].some((k) => s.includes(k))
+}
+
+function score(v?: number | null) {
+  return v === undefined || v === null ? "-" : String(v)
+}
+
 export default function Home() {
   const [data, setData] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch(
-          `/api/proxy/api/hoy`,
-          { cache: "no-store" }
-        )
-
-        if (!res.ok) {
-          const body = await res.text()
-          throw new Error(`Proxy ${res.status}: ${body}`)
-        }
-
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/matches/today`, { cache: "no-store" })
         const json = await res.json()
 
-        let parsed: Match[] = []
         if (Array.isArray(json)) {
-          parsed = json
+          setData(json)
         } else if (json?.matches && Array.isArray(json.matches)) {
-          parsed = json.matches
-        } else if (json?.en_vivo || json?.proximos || json?.finalizados) {
-          parsed = [...(json.en_vivo || []), ...(json.proximos || []), ...(json.finalizados || [])]
+          setData(json.matches)
+        } else {
+          setData([])
         }
-
-        if (parsed.length === 0) {
-          const fallback = await fetch(`/api/proxy/api/matches/today`, { cache: "no-store" })
-          if (fallback.ok) {
-            const fallbackJson = await fallback.json()
-            parsed = Array.isArray(fallbackJson)
-              ? fallbackJson
-              : (Array.isArray(fallbackJson?.matches) ? fallbackJson.matches : [])
-          }
-        }
-
-        setData(parsed)
       } catch (error) {
         console.error("Error:", error)
-        setError(error instanceof Error ? error.message : "Error inesperado")
         setData([])
       } finally {
         setLoading(false)
@@ -71,66 +62,57 @@ export default function Home() {
     fetchData()
   }, [])
 
-  const live = data.filter((m) => m.status === "live")
-  const upcoming = data.filter((m) => m.status === "upcoming")
-  const finished = data.filter((m) => m.status === "finished")
+  const grouped = useMemo(() => {
+    const live = data.filter(isLive)
+    const finished = data.filter((m) => !isLive(m) && isFinished(m))
+    const upcoming = data.filter((m) => !isLive(m) && !isFinished(m))
+    return { live, upcoming, finished }
+  }, [data])
+
+  const cards = [...grouped.live, ...grouped.upcoming, ...grouped.finished]
 
   return (
-    <main style={{ padding: "24px" }}>
-      <h1>HOY - Agenda deportiva</h1>
+    <section className={styles.page}>
+      <div className={styles.layout}>
+        <aside className={styles.sidebar}>
+          <div className={styles.sideTitle}>PARTIDOS DE HOY</div>
+          <div className={styles.sideItem}><span className={styles.liveDot} /> En vivo ({grouped.live.length})</div>
+          <div className={styles.sideItem}>Próximos ({grouped.upcoming.length})</div>
+          <div className={styles.sideItem}>Finalizados ({grouped.finished.length})</div>
+        </aside>
 
-      {loading ? (
-        <p>Cargando...</p>
-      ) : error ? (
-        <p style={{ color: "crimson" }}>Error cargando partidos: {error}</p>
-      ) : data.length === 0 ? (
-        <p>No hay partidos para mostrar.</p>
-      ) : (
-        <div style={{ display: "grid", gap: 18 }}>
-          <section>
-            <h2 style={{ marginBottom: 8 }}>En vivo ({live.length})</h2>
-            {live.length === 0 ? <p>Sin partidos en vivo.</p> : (
-              <ul>
-                {live.map((m) => (
-                  <li key={m.id}>
-                    <strong>{m.home_team}</strong> {m.home_score ?? "-"} - {m.away_score ?? "-"} <strong>{m.away_team}</strong>
-                    {" · "}
-                    {m.minute ?? "EN VIVO"}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+        <div className={styles.centerCol}>
+          <header className={styles.pageHeader}>
+            <h1 className={styles.pageTitle}>HOY - Agenda deportiva</h1>
+            <span className={styles.badge}>{cards.length} partidos</span>
+          </header>
 
-          <section>
-            <h2 style={{ marginBottom: 8 }}>Próximos ({upcoming.length})</h2>
-            {upcoming.length === 0 ? <p>Sin próximos partidos.</p> : (
-              <ul>
-                {upcoming.map((m) => (
-                  <li key={m.id}>
-                    <strong>{m.home_team}</strong> vs <strong>{m.away_team}</strong>
-                    {" · "}
-                    {m.start_time ?? "Horario a confirmar"}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          {loading ? (
+            <div className={styles.empty}>Cargando partidos...</div>
+          ) : cards.length === 0 ? (
+            <div className={styles.empty}>No hay partidos para mostrar.</div>
+          ) : (
+            <div className={styles.cards}>
+              {cards.map((m) => (
+                <article key={m.id} className={styles.matchCard}>
+                  <div className={styles.cardHeader}>
+                    <span className={styles.comp}>{m.competition || "Competencia"}</span>
+                    <span className={isLive(m) ? styles.liveBadge : styles.statusBadge}>
+                      {isLive(m) ? `EN VIVO ${m.minute ?? ""}`.trim() : (m.status || "Programado")}
+                    </span>
+                  </div>
 
-          <section>
-            <h2 style={{ marginBottom: 8 }}>Finalizados ({finished.length})</h2>
-            {finished.length === 0 ? <p>Sin finalizados.</p> : (
-              <ul>
-                {finished.map((m) => (
-                  <li key={m.id}>
-                    <strong>{m.home_team}</strong> {m.home_score ?? "-"} - {m.away_score ?? "-"} <strong>{m.away_team}</strong>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+                  <div className={styles.teamsRow}>
+                    <div className={styles.team}>{m.home_team}</div>
+                    <div className={styles.score}>{score(m.home_score)} - {score(m.away_score)}</div>
+                    <div className={styles.teamAway}>{m.away_team}</div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-    </main>
+      </div>
+    </section>
   )
 }
