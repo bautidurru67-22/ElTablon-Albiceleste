@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import asyncio
 from bs4 import BeautifulSoup
 
 from scraping.sources.cabb import get_lnb_html, parse_lnb
@@ -9,45 +10,83 @@ from scraping.sources.cabb import get_lnb_html, parse_lnb
 logger = logging.getLogger(__name__)
 
 
+async def _get_lnb_html_retry() -> str | None:
+    html = await get_lnb_html()
+    if html:
+        return html
+    await asyncio.sleep(1)
+    return await get_lnb_html()
+
+
 async def get_lnb_overview(competition: str = "liga-nacional") -> dict:
     """
     Retorna tabla + fixture para básquet argentino.
-    competition hoy es informativo (default: liga-nacional),
-    para permitir selector en frontend sin romper contrato.
+    Si LNB falla o devuelve vacío, hace fallback a partidos cacheados de hoy.
     """
-    html = await get_lnb_html()
-    if not html:
-        return {
-            "competition": competition,
-            "competition_label": "Liga Nacional",
-            "standings": [],
-            "fixtures": [],
-            "source": "lnb",
-            "error": "No se pudo obtener HTML de LNB",
-        }
+    html = await _get_lnb_html_retry()
 
-    fixtures_raw = parse_lnb(html)
-    fixtures = [
-        {
-            "home": row.get("home", ""),
-            "away": row.get("away", ""),
-            "status": row.get("status", "upcoming"),
-            "start_time": row.get("start_time"),
-            "home_score": row.get("home_score"),
-            "away_score": row.get("away_score"),
-        }
-        for row in fixtures_raw
-    ]
+    standings: list[dict] = []
+    fixtures: list[dict] = []
+    errors: list[str] = []
 
-    standings = _parse_lnb_standings(html)
+    if html:
+        try:
+            fixtures_raw = parse_lnb(html)
+            fixtures = [
+                {
+                    "home": row.get("home", ""),
+                    "away": row.get("away", ""),
+                    "status": row.get("status", "upcoming"),
+                    "start_time": row.get("start_time"),
+                    "home_score": row.get("home_score"),
+                    "away_score": row.get("away_score"),
+                }
+                for row in fixtures_raw
+                if row.get("home") and row.get("away")
+            ]
+        except Exception as e:
+            errors.append(f"parse_lnb_error: {e}")
 
-    return {
+        try:
+            standings = _parse_lnb_standings(html)
+        except Exception as e:
+            errors.append(f"parse_standings_error: {e}")
+    else:
+        errors.append("lnb_html_empty")
+
+    # Fallback: si fixture quedó vacío, usamos cache de /today:basquet
+    if not fixtures:
+        try:
+            from app.services.match_service import get_sport_hoy
+            today_basquet = await get_sport_hoy("basquet")
+            fixtures = [
+                {
+                    "home": m.home_team,
+                    "away": m.away_team,
+                    "status": m.status,
+                    "start_time": m.start_time,
+                    "home_score": m.home_score,
+                    "away_score": m.away_score,
+                }
+                for m in today_basquet
+            ]
+            if fixtures:
+                errors.append("fixture_from_cache_fallback")
+        except Exception as e:
+            errors.append(f"cache_fallback_error: {e}")
+
+    result = {
         "competition": competition,
         "competition_label": "Liga Nacional",
         "standings": standings,
         "fixtures": fixtures,
         "source": "lnb",
     }
+
+    if errors:
+        result["error"] = " | ".join(errors)
+
+    return result
 
 
 def _parse_lnb_standings(html: str) -> list[dict]:
@@ -64,6 +103,7 @@ def _parse_lnb_standings(html: str) -> list[dict]:
         if parsed:
             return parsed
 
+    # fallback laxo
     for table in tables:
         parsed = _parse_table_rows(table)
         if parsed:
@@ -115,7 +155,7 @@ def _extract_team_name(cells: list[str]) -> str | None:
             continue
         if len(txt) <= 2:
             continue
-        if re.fullmatch(r"[0-9\-\.]+", txt):
+        if re.fullmatch(r"[0-9\\-\\.]+", txt):
             continue
         return txt
     return None
@@ -132,7 +172,7 @@ def _find_metric(cells: list[str], keys: tuple[str, ...]) -> str:
 def _first_int(value: str | None) -> int | None:
     if not value:
         return None
-    m = re.search(r"\d+", value)
+    m = re.search(r"\\d+", value)
     if not m:
         return None
     try:
