@@ -7,6 +7,7 @@ import SportBadge from '@/components/SportBadge'
 import styles from './resultados.module.css'
 
 export const revalidate = 60
+export const dynamic = 'force-dynamic'
 
 export default async function ResultadosPage() {
   const all: Match[] = await api.matches.results()
