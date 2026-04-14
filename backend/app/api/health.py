@@ -11,7 +11,7 @@ from app.cache import cache
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-DEBUG_TAG = "scrape-debug-v4-2026-04-13"
+DEBUG_TAG = "scrape-debug-v3-2026-04-13"
 
 
 @router.get("/health")
@@ -40,6 +40,7 @@ async def health_full():
 async def debug_scraping(sport: str = "futbol"):
     """
     Corre scraping EN VIVO para un deporte y muestra resultado.
+    Parámetro: ?sport=futbol|tenis|basquet|rugby|hockey|voley|handball|futsal|golf|boxeo|motorsport|motogp
     """
     t0 = time.monotonic()
     result: dict = {
@@ -53,7 +54,7 @@ async def debug_scraping(sport: str = "futbol"):
     }
 
     try:
-        from app.scraping_bridge import _SCRAPING_OK
+        from app.scraping_bridge import _SCRAPING_OK, _to_match
         result["scraping_ok"] = _SCRAPING_OK
         if not _SCRAPING_OK:
             result["errors"].append("scraping package not importable")
@@ -61,14 +62,9 @@ async def debug_scraping(sport: str = "futbol"):
 
         from scraping.registry import ADAPTER_REGISTRY, LOAD_ERRORS
         result["registry_load_errors"] = LOAD_ERRORS
-
         if sport not in ADAPTER_REGISTRY:
-            result["errors"].append(
-                f"'{sport}' no está en ADAPTER_REGISTRY. "
-                f"Disponibles: {list(ADAPTER_REGISTRY.keys())}"
-            )
+            result["errors"].append(f"'{sport}' no está en ADAPTER_REGISTRY. Disponibles: {list(ADAPTER_REGISTRY.keys())}")
             return result
-
         adapter_cls = ADAPTER_REGISTRY[sport]
         result["sources_tried"] = getattr(adapter_cls, "SOURCE_ORDER", [])
         result["source_diagnostics"] = getattr(adapter_cls, "LAST_RUN", {})
@@ -77,6 +73,9 @@ async def debug_scraping(sport: str = "futbol"):
         coord = ScrapingCoordinator({sport: ADAPTER_REGISTRY[sport]}, timeout_per_adapter=25)
         normalized = await coord.run_all_flat()
         arg = coord.get_argentina_matches(normalized)
+        if sport != "futbol" and not arg:
+            arg = normalized
+            result["used_non_arg_fallback"] = True
 
         result["count"] = len(arg)
         result["total_before_filter"] = len(normalized)
@@ -110,7 +109,7 @@ async def debug_all_sports():
     summary = {}
 
     try:
-        from app.scraping_bridge import _SCRAPING_OK
+        from app.scraping_bridge import _SCRAPING_OK, _to_match
         if not _SCRAPING_OK:
             return {"error": "scraping not importable"}
 
