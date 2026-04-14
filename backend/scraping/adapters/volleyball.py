@@ -19,6 +19,9 @@ FIVB_URL = "https://www.fivb.com/en/volleyball/competitions"
 
 
 class VolleyballAdapter(BaseScraper):
+    SOURCE_ORDER = ["sofascore_scheduled", "sofascore_live", "voley.org.ar"]
+    DIAG_VERSION = "volleyball-diag-v1-2026-04-14"
+    LAST_RUN: dict = {}
     async def scrape(self) -> list[NormalizedMatch]:
         matches = []
 
@@ -30,6 +33,8 @@ class VolleyballAdapter(BaseScraper):
                 data = await fn()
                 events = data.get("events", [])
                 ss = sofascore_normalizer.normalize_events(events, "voley")
+                if not ss:
+                    ss = sofascore_normalizer.normalize_events_all(events, "voley")
                 existing = {m.id for m in matches}
                 new = [m for m in ss if m.id not in existing]
                 logger.info(f"[volleyball/ss-{label}] {len(new)}")
