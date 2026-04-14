@@ -21,7 +21,8 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "typescript": "^5"
-   },
-    "engines": {
-  "node": "20.x"
+  },
+  "engines": {
+    "node": "20.x"
+  }
 }
