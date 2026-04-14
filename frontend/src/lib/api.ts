@@ -2,78 +2,44 @@ import { Match } from '@/types/match'
 import { Player } from '@/types/player'
 import { TokenResponse, Favorite } from '@/types/auth'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL
-const SERVER_API_BASE = process.env.API_URL || process.env.BACKEND_URL || API_BASE || 'http://localhost:8000'
-const IS_SERVER = typeof window === 'undefined'
-const CLIENT_PROXY_BASE = '/api/proxy'
-let hasWarnedMisconfig = false
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
-function warnIfApiMisconfigured() {
-  if (!IS_SERVER || hasWarnedMisconfig) return
-
-  const isVercelRuntime = Boolean(process.env.VERCEL_URL)
-  if (!API_BASE && !process.env.API_URL && !process.env.BACKEND_URL && isVercelRuntime) {
-    hasWarnedMisconfig = true
-    console.error('[el-tablon] Falta configurar NEXT_PUBLIC_API_URL/API_URL/BACKEND_URL en Vercel.')
-  }
-}
-
-function getServerProxyTarget(path: string): string | null {
-  const vercelUrl = process.env.VERCEL_URL
-  const appUrl = process.env.NEXT_PUBLIC_SITE_URL
-  const base = appUrl || (vercelUrl ? `https://${vercelUrl}` : null)
-  if (!base) return null
-  return `${base}${CLIENT_PROXY_BASE}${path}`
-}
-
+// ---------------------------------------------------------------------------
+// Core fetch — con soporte de auth token
+// ---------------------------------------------------------------------------
 async function apiFetch<T>(
   path: string,
   options: RequestInit & { revalidate?: number; token?: string } = {}
 ): Promise<T> {
-  warnIfApiMisconfigured()
   const { revalidate = 30, token, ...fetchOpts } = options
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(fetchOpts.headers ?? {}),
   }
-
   try {
-    const primaryTarget = IS_SERVER
-      ? `${SERVER_API_BASE}${path}`
-      : `${CLIENT_PROXY_BASE}${path}`
-
-    let res = await fetch(primaryTarget, {
+    const res = await fetch(`${API_BASE}${path}`, {
       ...fetchOpts,
       headers,
       next: fetchOpts.method ? undefined : { revalidate },
     })
-
-    if (!res.ok && IS_SERVER) {
-      const fallback = getServerProxyTarget(path)
-      if (fallback) {
-        res = await fetch(fallback, {
-          ...fetchOpts,
-          headers,
-          cache: 'no-store',
-        })
-      }
-    }
-
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.detail ?? `HTTP ${res.status}`)
     }
     return res.json()
   } catch (err) {
-    if (IS_SERVER) {
-      console.error(`[el-tablon] Error consultando ${path}`, err)
+    // Server components: log + retornar vacío; client components: relanzar
+    if (typeof window === 'undefined') {
       return [] as unknown as T
     }
     throw err
   }
 }
 
+// ---------------------------------------------------------------------------
+// Public API (Server Components)
+// ---------------------------------------------------------------------------
 export const api = {
   matches: {
     live:      (sport?: string) => apiFetch<Match[]>(`/api/matches/live${sport ? `?sport=${sport}` : ''}`, { revalidate: 15 }),
@@ -82,42 +48,61 @@ export const api = {
     argentina: ()               => apiFetch<Match[]>('/api/matches/argentina', { revalidate: 30 }),
     club:      (id: string)     => apiFetch<Match[]>(`/api/matches/club/${id}`, { revalidate: 30 }),
   },
+
+  competitions: {
+    list: (sport: string) =>
+      apiFetch<{ sport: string; items: Array<{ slug: string; label: string }> }>(
+        `/api/competitions/${sport}`,
+        { revalidate: 120 }
+      ),
+
+    fixture: (sport: string, slug: string) =>
+      apiFetch<{
+        sport: string
+        slug: string
+        competition: string
+        updated_at: string
+        count: number
+        matches: Match[]
+      }>(
+        `/api/competitions/${sport}/${slug}/fixture`,
+        { revalidate: 30 }
+      ),
+
+    table: (sport: string, slug: string) =>
+      apiFetch<{
+        sport: string
+        slug: string
+        competition: string
+        updated_at: string
+        rows: Array<Record<string, unknown>>
+      }>(
+        `/api/competitions/${sport}/${slug}/table`,
+        { revalidate: 30 }
+      ),
+
+    scorers: (sport: string, slug: string) =>
+      apiFetch<{
+        sport: string
+        slug: string
+        competition: string
+        updated_at: string
+        rows: Array<Record<string, unknown>>
+        note?: string
+      }>(
+        `/api/competitions/${sport}/${slug}/scorers`,
+        { revalidate: 30 }
+      ),
+  },
+
   players: {
     abroad: () => apiFetch<Player[]>('/api/players/abroad', { revalidate: 300 }),
   },
-  basketball: {
-    overview: (competition = 'liga-nacional') =>
-      apiFetch<{
-        competition: string
-        competition_label: string
-        standings: Array<{ position: number; team: string; pj?: number | null; pts?: number | null }>
-        fixtures: Array<{
-          home: string
-          away: string
-          status: string
-          start_time?: string | null
-          home_score?: number | null
-          away_score?: number | null
-        }>
-        source: string
-        error?: string
-      }>(`/api/basketball/overview?competition=${encodeURIComponent(competition)}`, { revalidate: 120 }),
-  },
-
-  football: {
-    overview: (competition = 'liga-profesional') =>
-      apiFetch<{
-        competition: string
-        competition_label: string
-        standings: Array<{ position: number; team: string; points?: number | null; played?: number | null; goal_diff?: number | null; form?: string | null }>
-        fixtures: Array<{ date?: string | null; status?: string | null; home: string; away: string; home_score?: number | null; away_score?: number | null; round?: string | null }>
-        source: string
-        error?: string
-      }>(`/api/football/overview?competition=${encodeURIComponent(competition)}`, { revalidate: 120 }),
-  },
-
 }
 
+// ---------------------------------------------------------------------------
+// Auth API (Client Components — lanza errores)
+// ---------------------------------------------------------------------------
 export const authApi = {
   register: (email: string, password: string, username?: string) =>
     apiFetch<TokenResponse>('/api/auth/register', {
@@ -135,6 +120,9 @@ export const authApi = {
     apiFetch<TokenResponse['user']>('/api/auth/me', { token }),
 }
 
+// ---------------------------------------------------------------------------
+// Favorites API (Client Components — requiere token)
+// ---------------------------------------------------------------------------
 export const favoritesApi = {
   list: (token: string) =>
     apiFetch<Favorite[]>('/api/favorites/', { token }),
@@ -156,6 +144,7 @@ export const favoritesApi = {
     apiFetch<{ is_favorite: boolean }>(`/api/favorites/check/${tipo}/${entity_id}`, { token }),
 }
 
+// Legacy
 export async function fetchMatches(endpoint: string): Promise<Match[]> {
   return apiFetch<Match[]>(`/api/matches/${endpoint}`, { revalidate: 30 })
 }
