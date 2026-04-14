@@ -22,6 +22,9 @@ UAR_FIXTURE_URL = "https://www.uar.com.ar/fixture-y-resultados"
 
 
 class RugbyAdapter(BaseScraper):
+    SOURCE_ORDER = ["sofascore_scheduled", "sofascore_live", "uar"]
+    DIAG_VERSION = "rugby-diag-v1-2026-04-14"
+    LAST_RUN: dict = {}
     EXTRA_HEADERS = {"Referer": "https://www.uar.com.ar/"}
 
     async def scrape(self) -> list[NormalizedMatch]:
@@ -32,6 +35,8 @@ class RugbyAdapter(BaseScraper):
             data = await sofascore.get_events_by_date("rugby")
             events = data.get("events", [])
             ss = sofascore_normalizer.normalize_events(events, "rugby")
+            if not ss:
+                ss = sofascore_normalizer.normalize_events_all(events, "rugby")
             logger.info(f"[rugby/sofascore-scheduled] {len(ss)} con ARG (de {len(events)} total)")
             matches.extend(ss)
         except Exception as e:
@@ -42,6 +47,8 @@ class RugbyAdapter(BaseScraper):
             data = await sofascore.get_live_events("rugby")
             events = data.get("events", [])
             live = sofascore_normalizer.normalize_events(events, "rugby")
+            if not live:
+                live = sofascore_normalizer.normalize_events_all(events, "rugby")
             existing = {m.id for m in matches}
             new_live = [m for m in live if m.id not in existing]
             logger.info(f"[rugby/sofascore-live] {len(new_live)} en vivo")
