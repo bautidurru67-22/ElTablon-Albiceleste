@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import logging
 import httpx
+import asyncio
 from datetime import datetime
 from typing import Any
 
@@ -25,16 +26,9 @@ def _raw_key() -> str:
 def _is_placeholder_key(key: str) -> bool:
     if not key:
         return True
-    bad = {
-        "TU_API_KEY_REAL",
-        "API_KEY",
-        "YOUR_API_KEY",
-        "CHANGE_ME",
-        "test",
-        "xxxxx",
-        "REPLACE_ME",
-    }
-    return key in bad
+    bad_prefixes = ("TU_", "YOUR_", "REPLACE_", "CHANGE_")
+    bad_exact = {"TU_API_KEY_REAL", "TU_KEY_REAL_DE_API_FOOTBALL", "API_KEY", "test"}
+    return key in bad_exact or key.startswith(bad_prefixes)
 
 
 def _headers(key: str) -> dict:
@@ -68,17 +62,19 @@ def _normalize_status(short: str | None) -> str:
     return m.get((short or "").upper(), "upcoming")
 
 
-async def _fetch_standings(
-    client: httpx.AsyncClient,
-    league_id: int,
-    seasons_to_try: list[int],
-) -> tuple[list[dict], str]:
+async def _safe_get_json(client: httpx.AsyncClient, url: str, timeout_s: float = 4.5) -> dict[str, Any]:
+    async def _do():
+        r = await client.get(url)
+        r.raise_for_status()
+        return r.json()
+    return await asyncio.wait_for(_do(), timeout=timeout_s)
+
+
+async def _fetch_standings(client: httpx.AsyncClient, league_id: int, seasons: list[int]) -> tuple[list[dict], str]:
     label = ""
-    for season in seasons_to_try:
+    for season in seasons:
         try:
-            res = await client.get(f"{BASE}/standings?league={league_id}&season={season}")
-            res.raise_for_status()
-            data: dict[str, Any] = res.json()
+            data = await _safe_get_json(client, f"{BASE}/standings?league={league_id}&season={season}")
             league = (((data.get("response") or [{}])[0].get("league") or {}))
             raw = ((league.get("standings") or [[]])[0])
 
@@ -102,19 +98,11 @@ async def _fetch_standings(
     return [], label
 
 
-async def _fetch_fixtures(
-    client: httpx.AsyncClient,
-    league_id: int,
-    seasons_to_try: list[int],
-) -> list[dict]:
-    for season in seasons_to_try:
+async def _fetch_fixtures(client: httpx.AsyncClient, league_id: int, seasons: list[int]) -> list[dict]:
+    for season in seasons:
         try:
-            # intentamos próximos partidos
-            res = await client.get(f"{BASE}/fixtures?league={league_id}&season={season}&next=20")
-            res.raise_for_status()
-            data: dict[str, Any] = res.json()
+            data = await _safe_get_json(client, f"{BASE}/fixtures?league={league_id}&season={season}&next=20")
             rows = data.get("response") or []
-
             fixtures = [
                 {
                     "date": ((item.get("fixture") or {}).get("date")),
@@ -131,28 +119,6 @@ async def _fetch_fixtures(
             ]
             if fixtures:
                 return fixtures
-
-            # fallback: últimos partidos
-            res2 = await client.get(f"{BASE}/fixtures?league={league_id}&season={season}&last=20")
-            res2.raise_for_status()
-            data2: dict[str, Any] = res2.json()
-            rows2 = data2.get("response") or []
-            fixtures2 = [
-                {
-                    "date": ((item.get("fixture") or {}).get("date")),
-                    "status": _normalize_status((((item.get("fixture") or {}).get("status") or {}).get("short"))),
-                    "home": (((item.get("teams") or {}).get("home") or {}).get("name")),
-                    "away": (((item.get("teams") or {}).get("away") or {}).get("name")),
-                    "home_score": ((item.get("goals") or {}).get("home")),
-                    "away_score": ((item.get("goals") or {}).get("away")),
-                    "round": ((item.get("league") or {}).get("round")),
-                }
-                for item in rows2
-                if (((item.get("teams") or {}).get("home") or {}).get("name")
-                    and ((item.get("teams") or {}).get("away") or {}).get("name"))
-            ]
-            if fixtures2:
-                return fixtures2
         except Exception as e:
             logger.warning(f"[football_overview] fixtures season={season} error: {e}")
     return []
@@ -169,32 +135,35 @@ async def get_football_overview(competition: str = "liga-profesional") -> dict:
             "standings": [],
             "fixtures": [],
             "source": "api_football",
-            "error": "API_FOOTBALL_KEY no configurado",
+            "error": "API_FOOTBALL_KEY no configurado o placeholder",
         }
 
-    seasons_to_try = [_season_now(), _season_now() - 1]
+    seasons = [_season_now(), _season_now() - 1]
     standings: list[dict] = []
     fixtures: list[dict] = []
-    competition_label = competition.replace("-", " ").title()
+    label = competition.replace("-", " ").title()
     error = None
 
-    async with httpx.AsyncClient(
-        headers=_headers(key),
-        timeout=httpx.Timeout(15.0, connect=7.0),
-        follow_redirects=True,
-    ) as client:
-        standings, fetched_label = await _fetch_standings(client, league_id, seasons_to_try)
-        if fetched_label:
-            competition_label = fetched_label
+    try:
+        async with httpx.AsyncClient(
+            headers=_headers(key),
+            timeout=httpx.Timeout(6.0, connect=3.0),
+            follow_redirects=True,
+        ) as client:
+            standings, fetched_label = await _fetch_standings(client, league_id, seasons)
+            if fetched_label:
+                label = fetched_label
+            fixtures = await _fetch_fixtures(client, league_id, seasons)
+    except Exception as e:
+        logger.exception(f"[football_overview] fatal error: {e}")
+        error = "Fallo consultando API-Football"
 
-        fixtures = await _fetch_fixtures(client, league_id, seasons_to_try)
-
-    if not standings and not fixtures:
-        error = "Sin datos de standings/fixtures para la competencia seleccionada"
+    if not standings and not fixtures and not error:
+        error = "Sin datos para la competencia seleccionada"
 
     return {
         "competition": competition,
-        "competition_label": competition_label,
+        "competition_label": label,
         "standings": standings,
         "fixtures": fixtures,
         "source": "api_football",
