@@ -23,6 +23,9 @@ FIH_FIXTURES = "https://www.fih.ch/en/calendar-and-results/fixtures/"
 
 
 class HockeyAdapter(BaseScraper):
+    SOURCE_ORDER = ["sofascore_scheduled", "sofascore_live", "fih"]
+    DIAG_VERSION = "hockey-diag-v1-2026-04-14"
+    LAST_RUN: dict = {}
     EXTRA_HEADERS = {"Referer": "https://www.fih.ch/"}
 
     async def scrape(self) -> list[NormalizedMatch]:
@@ -33,6 +36,8 @@ class HockeyAdapter(BaseScraper):
             data = await sofascore.get_events_by_date("hockey")
             events = data.get("events", [])
             ss = sofascore_normalizer.normalize_events(events, "hockey")
+            if not ss:
+                ss = sofascore_normalizer.normalize_events_all(events, "hockey")
             logger.info(f"[hockey/sofascore-scheduled] {len(ss)} con ARG (de {len(events)} total)")
             matches.extend(ss)
         except Exception as e:
@@ -43,6 +48,8 @@ class HockeyAdapter(BaseScraper):
             data = await sofascore.get_live_events("hockey")
             events = data.get("events", [])
             live = sofascore_normalizer.normalize_events(events, "hockey")
+            if not live:
+                live = sofascore_normalizer.normalize_events_all(events, "hockey")
             existing = {m.id for m in matches}
             new_live = [m for m in live if m.id not in existing]
             logger.info(f"[hockey/sofascore-live] {len(new_live)} en vivo")
