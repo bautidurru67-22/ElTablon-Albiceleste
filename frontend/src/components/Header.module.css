@@ -8,7 +8,7 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 16px;
-  height: 52px;
+  height: 84px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -22,9 +22,8 @@
 
 .logoImage {
   width: auto;
-  height: 75px; /* antes 30px: un poco más grande */
+  height: 68px;
   object-fit: contain;
-  display: block;
 }
 
 .right {
@@ -58,10 +57,10 @@
 
 @media (max-width: 640px) {
   .inner {
-    height: 48px;
+    height: 62px;
   }
 
   .logoImage {
-    height: 28px;
+    height: 46px;
   }
 }
