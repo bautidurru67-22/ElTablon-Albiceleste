@@ -246,7 +246,6 @@ export default async function DeportePage({ params, searchParams }: Props) {
         </div>
 
         <aside className={styles.sidebar}>
-                 <aside className={styles.sidebar}>
           <div className={styles.sideCard}>
             <SectionTitle>Hoy en {sl(sport)}</SectionTitle>
             <div className={styles.statRow}><span className={styles.statLabel}>En vivo</span><span className={styles.statVal}>{live.length}</span></div>
