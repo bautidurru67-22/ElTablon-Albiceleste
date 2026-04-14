@@ -1,56 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const API_BASE =
-  process.env.API_URL ||
-  process.env.BACKEND_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  'http://localhost:8000'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
-function getTargetUrl(path: string[], req: NextRequest) {
-  const clean = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE
-  const target = new URL(`${clean}/${path.join('/')}`)
-  req.nextUrl.searchParams.forEach((value, key) => {
-    target.searchParams.set(key, value)
-  })
-  return target
-}
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { path: string[] } }
+) {
+  const target = `${API_BASE}/api/competitions/${params.path.join('/')}`
 
-async function proxy(req: NextRequest, ctx: { params: { path: string[] } }) {
   try {
-    const target = getTargetUrl(ctx.params.path, req)
-    const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.text()
+    const res = await fetch(target, { cache: 'no-store' })
+    const text = await res.text()
 
-    const upstream = await fetch(target.toString(), {
-      method: req.method,
-      headers: {
-        ...(req.headers.get('content-type') ? { 'Content-Type': req.headers.get('content-type')! } : {}),
-        ...(req.headers.get('authorization') ? { Authorization: req.headers.get('authorization')! } : {}),
-      },
-      body,
-      cache: 'no-store',
-    })
-
-    const text = await upstream.text()
     return new NextResponse(text, {
-      status: upstream.status,
-      headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json' },
+      status: res.status,
+      headers: { 'Content-Type': res.headers.get('Content-Type') ?? 'application/json' },
     })
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { detail: 'Proxy error', error: error instanceof Error ? error.message : 'unknown' },
+      { detail: 'Proxy error to backend competitions API' },
       { status: 502 }
     )
   }
-}
-
-export async function GET(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx)
-}
-
-export async function POST(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx)
-}
-
-export async function DELETE(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx)
 }
