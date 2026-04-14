@@ -23,6 +23,9 @@ ATP_SCORES_URL = "https://www.atptour.com/en/scores/current"
 
 
 class TennisAdapter(BaseScraper):
+    SOURCE_ORDER = ["sofascore_scheduled", "sofascore_live", "atptour"]
+    DIAG_VERSION = "tennis-diag-v1-2026-04-14"
+    LAST_RUN: dict = {}
     EXTRA_HEADERS = {"Referer": "https://www.sofascore.com/"}
 
     async def scrape(self) -> list[NormalizedMatch]:
@@ -33,7 +36,9 @@ class TennisAdapter(BaseScraper):
             data = await sofascore.get_events_by_date("tenis")
             events = data.get("events", [])
             ss = sofascore_normalizer.normalize_events(events, "tenis")
-            logger.info(f"[tennis/sofascore-scheduled] {len(ss)} con ARG")
+            if not ss:
+                ss = sofascore_normalizer.normalize_events_all(events, "tenis")
+            logger.info(f"[tennis/sofascore-scheduled] {len(ss)}")
             matches.extend(ss)
         except Exception as e:
             logger.warning(f"[tennis/sofascore-scheduled] falló: {e}")
@@ -43,6 +48,8 @@ class TennisAdapter(BaseScraper):
             data = await sofascore.get_live_events("tenis")
             events = data.get("events", [])
             live = sofascore_normalizer.normalize_events(events, "tenis")
+            if not live:
+                live = sofascore_normalizer.normalize_events_all(events, "tenis")
             existing = {m.id for m in matches}
             new_live = [m for m in live if m.id not in existing]
             logger.info(f"[tennis/sofascore-live] {len(new_live)} en vivo")
