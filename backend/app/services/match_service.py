@@ -10,6 +10,43 @@ logger = logging.getLogger(__name__)
 
 STATUS_ORDER = {"live": 0, "upcoming": 1, "finished": 2}
 
+# Señales de contenido argentino (rápidas/robustas)
+ARG_KEYWORDS = [
+    "argentina", "liga profesional", "primera nacional", "copa argentina",
+    "reserva", "femenina", "federal a", "federal b", "primera c",
+    "promocional amateur", "libertadores", "sudamericana",
+    "afa", "selección argentina", "superliga argentina",
+]
+
+# Señales a excluir (para evitar ruido de países no deseados en /hoy y /deporte)
+EXCLUDE_KEYWORDS = [
+    "chile", "chilean", "copa chile", "primera división de chile",
+    "union la calera", "deportes concepcion", "colo colo", "universidad de chile",
+]
+
+def _norm(s: str | None) -> str:
+    return (s or "").strip().lower()
+
+def _is_argentina_match(m: Match) -> bool:
+    # Si el pipeline ya marcó relevancia argentina, respetar
+    if getattr(m, "argentina_relevance", "none") != "none":
+        return True
+
+    hay = " ".join([
+        _norm(getattr(m, "competition", "")),
+        _norm(getattr(m, "home_team", "")),
+        _norm(getattr(m, "away_team", "")),
+        _norm(getattr(m, "argentina_team", "")),
+    ])
+    return any(k in hay for k in ARG_KEYWORDS)
+
+def _is_excluded_match(m: Match) -> bool:
+    hay = " ".join([
+        _norm(getattr(m, "competition", "")),
+        _norm(getattr(m, "home_team", "")),
+        _norm(getattr(m, "away_team", "")),
+    ])
+    return any(k in hay for k in EXCLUDE_KEYWORDS)
 
 def _sort(matches: list) -> list:
     return sorted(
@@ -17,9 +54,15 @@ def _sort(matches: list) -> list:
         key=lambda m: (STATUS_ORDER.get(m.status, 9), m.start_time or "")
     )
 
+def _clean(matches: list[Match]) -> list[Match]:
+    # 1) excluye ruido explícito
+    filtered = [m for m in matches if not _is_excluded_match(m)]
+    # 2) prioriza relevancia argentina si existe señal (evita cross-country noise)
+    arg = [m for m in filtered if _is_argentina_match(m)]
+    return arg if arg else filtered
 
 async def _read_cache(key: str) -> list[Match]:
-    """Lee cache → last_valid → warmup puntual → []."""
+    """Lee cache → last_valid → []. NUNCA scrapea."""
     data = await cache.get(key)
     if data is not None:
         return data
@@ -27,48 +70,7 @@ async def _read_cache(key: str) -> list[Match]:
     if data is not None:
         logger.debug(f"[match_service] {key}: usando last_valid")
         return data
-    await _warm_cache_for_key(key)
-    data = await cache.get(key)
-    if data is not None:
-        logger.info(f"[match_service] {key}: warmup on-demand OK ({len(data)})")
-        return data
     return []
-
-
-async def _warm_cache_for_key(key: str) -> None:
-    """
-    Si scheduler no precalentó cache (cold start/restart), intenta un warmup puntual.
-    Evita dejar frontend vacío cuando hay datos disponibles en fuentes.
-    """
-    try:
-        from app.scheduler import _run_sport, job_hoy_agregador
-        from app.config import settings
-
-        if key.startswith("today:"):
-            sport = key.split(":", 1)[1]
-            results = await _run_sport(sport)
-            if results:
-                await cache.set(key, results, ttl=settings.cache_ttl_today, source=f"ondemand/{sport}")
-            return
-
-        if key.startswith("live:"):
-            sport = key.split(":", 1)[1]
-            results = await _run_sport(sport, status_filter="live")
-            if results:
-                await cache.set(key, results, ttl=settings.cache_ttl_live, source=f"ondemand/{sport}/live")
-            return
-
-        if key == "hoy:all":
-            # Asegura mínimos deportes core antes de agregar
-            for sport in ("futbol", "tenis", "basquet", "rugby", "hockey"):
-                skey = f"today:{sport}"
-                if await cache.get(skey) is None:
-                    res = await _run_sport(sport)
-                    if res:
-                        await cache.set(skey, res, ttl=settings.cache_ttl_today, source=f"ondemand/{sport}")
-            await job_hoy_agregador()
-    except Exception as e:
-        logger.warning(f"[match_service] warmup on-demand falló para {key}: {e}")
 
 
 # ── Endpoints públicos ──────────────────────────────────────────────────────
@@ -76,6 +78,8 @@ async def _warm_cache_for_key(key: str) -> None:
 async def get_hoy() -> dict:
     """Agenda completa del día — lee hoy:all del agregador."""
     matches: list[Match] = await _read_cache("hoy:all")
+    matches = _clean(matches)
+
     live      = [m for m in matches if m.status == "live"]
     upcoming  = [m for m in matches if m.status == "upcoming"]
     finished  = [m for m in matches if m.status == "finished"]
@@ -88,41 +92,41 @@ async def get_hoy() -> dict:
 
 
 async def get_futbol_hoy() -> list[Match]:
-    return _sort(await _read_cache("today:futbol"))
+    return _sort(_clean(await _read_cache("today:futbol")))
 
 
 async def get_futbol_live() -> list[Match]:
-    data = await _read_cache("live:futbol")
+    data = _clean(await _read_cache("live:futbol"))
     return [m for m in data if m.status == "live"]
 
 
 async def get_tenis_hoy() -> list[Match]:
-    return _sort(await _read_cache("today:tenis"))
+    return _sort(_clean(await _read_cache("today:tenis")))
 
 
 async def get_basquet_hoy() -> list[Match]:
-    return _sort(await _read_cache("today:basquet"))
+    return _sort(_clean(await _read_cache("today:basquet")))
 
 
 async def get_rugby_hoy() -> list[Match]:
-    return _sort(await _read_cache("today:rugby"))
+    return _sort(_clean(await _read_cache("today:rugby")))
 
 
 async def get_hockey_hoy() -> list[Match]:
-    return _sort(await _read_cache("today:hockey"))
+    return _sort(_clean(await _read_cache("today:hockey")))
 
 
 async def get_sport_hoy(sport: str) -> list[Match]:
-    return _sort(await _read_cache(f"today:{sport}"))
+    return _sort(_clean(await _read_cache(f"today:{sport}")))
 
 
 # ── Compat con rutas viejas /api/matches/* ──────────────────────────────────
 
 async def get_live_matches(sport: str | None = None) -> list[Match]:
     if sport:
-        data = await _read_cache(f"live:{sport}")
+        data = _clean(await _read_cache(f"live:{sport}"))
         return [m for m in data if m.status == "live"]
-    data = await _read_cache("live:futbol")
+    data = _clean(await _read_cache("live:futbol"))
     return [m for m in data if m.status == "live"]
 
 
@@ -141,7 +145,8 @@ async def get_results_matches(sport: str | None = None) -> list[Match]:
 async def get_argentina_matches() -> list[Match]:
     hoy = await get_hoy()
     all_m = hoy["en_vivo"] + hoy["proximos"] + hoy["finalizados"]
-    return _sort([m for m in all_m if getattr(m, "argentina_relevance", "none") != "none"])
+    # ya está limpio + ordenado por get_hoy, pero lo reforzamos:
+    return _sort([m for m in all_m if _is_argentina_match(m)])
 
 
 async def get_club_matches(club_id: str) -> list[Match]:
