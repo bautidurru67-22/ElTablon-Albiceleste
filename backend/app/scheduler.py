@@ -43,10 +43,15 @@ async def _run_sport(sport: str, status_filter: str | None = None) -> list:
         normalized = await coordinator.run_all_flat()
         arg = coordinator.get_argentina_matches(normalized)
 
-        if status_filter:
-            arg = [m for m in arg if m.status == status_filter]
+        # Cobertura rápida multi-deporte:
+        # si un deporte no logra relevancia argentina, no devolver vacío total.
+        # Esto ayuda a poblar /api/hoy mientras se afinan detectores por deporte.
+        selected = arg if arg else ([] if sport == "futbol" else normalized)
 
-        return [_to_match(m) for m in arg]
+        if status_filter:
+            selected = [m for m in selected if m.status == status_filter]
+
+        return [_to_match(m) for m in selected]
 
     except Exception as e:
         logger.error(f"[_run_sport] {sport} error: {e}", exc_info=True)
