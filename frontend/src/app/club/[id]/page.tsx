@@ -8,6 +8,7 @@ import styles from './club.module.css'
 import FollowButton from '@/components/FollowButton'
 
 export const revalidate = 30
+export const dynamic = 'force-dynamic'
 
 interface Props {
   params: { id: string }
