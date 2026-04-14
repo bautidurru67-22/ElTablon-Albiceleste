@@ -7,8 +7,8 @@
 }
 
 .bannerImage {
-  width: 100%;
-  max-width: 1200px;
+  width: 876px;
+  max-width: 100%;
   height: auto;
   display: block;
   object-fit: contain;
