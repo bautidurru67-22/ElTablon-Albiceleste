@@ -7,6 +7,7 @@ import MatchRow from '@/components/MatchRow'
 import styles from './calendario.module.css'
 
 export const revalidate = 60
+export const dynamic = 'force-dynamic'
 
 const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 const SPORTS_FILTER = ['Todos', 'Fútbol', 'Tenis', 'Básquet', 'Hockey', 'Rugby']
