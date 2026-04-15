@@ -11,6 +11,7 @@ Objetivos:
     2) ligas_locales
     3) exterior
     4) motorsport
+- Respetar categorías válidas ya definidas por los adapters
 """
 
 from __future__ import annotations
@@ -35,10 +36,6 @@ LOAD_ERRORS: dict[str, str] = {}
 _SUMMARY_CACHE: dict[str, dict[str, Any]] = {}
 _SPORT_CACHE: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
-
-# -------------------------------------------------------------------
-# Carga segura de adapters
-# -------------------------------------------------------------------
 
 def _load(module: str, cls: str):
     try:
@@ -79,10 +76,6 @@ for sport, (mod, cls_name) in _MAP.items():
 logger.info(f"[registry] activos: {list(ADAPTER_REGISTRY.keys())}")
 
 
-# -------------------------------------------------------------------
-# Reglas editoriales
-# -------------------------------------------------------------------
-
 ARGENTINA_SELECTION_PATTERNS = [
     r"\bargentina\b",
     r"\bselecci[oó]n argentina\b",
@@ -109,6 +102,7 @@ ARGENTINE_CLUBS = {
     "racing club avellaneda",
     "independiente",
     "club atletico independiente",
+    "independiente rivadavia",
     "san lorenzo",
     "san lorenzo de almagro",
     "club atletico san lorenzo",
@@ -167,7 +161,6 @@ ARGENTINE_CLUBS = {
     "central cordoba",
     "central cordoba sde",
     "central cordoba santiago del estero",
-    "independiente rivadavia",
     "deportivo riestra",
     "riestra",
     "godoy cruz",
@@ -311,10 +304,8 @@ SPORT_ORDER = {
     "olimpicos": 15,
 }
 
+VALID_CATEGORIES = {"selecciones", "ligas_locales", "exterior", "motorsport"}
 
-# -------------------------------------------------------------------
-# Helpers
-# -------------------------------------------------------------------
 
 def _now_art() -> datetime:
     return datetime.now(ART_TZ)
@@ -433,22 +424,17 @@ def _is_selection_name(name: str) -> bool:
 
 
 def _is_exact_argentine_club(name: str) -> bool:
-    text = _normalize_text(name)
-    return text in ARGENTINE_CLUBS
+    return _normalize_text(name) in ARGENTINE_CLUBS
 
 
 def _is_local_competition(name: str) -> bool:
     text = _normalize_text(name)
-    if not text:
-        return False
-    return any(pattern in text for pattern in LOCAL_COMPETITION_PATTERNS)
+    return any(pattern in text for pattern in LOCAL_COMPETITION_PATTERNS) if text else False
 
 
 def _is_international_competition(name: str) -> bool:
     text = _normalize_text(name)
-    if not text:
-        return False
-    return any(pattern in text for pattern in INTERNATIONAL_COMPETITION_PATTERNS)
+    return any(pattern in text for pattern in INTERNATIONAL_COMPETITION_PATTERNS) if text else False
 
 
 def _is_generic_competition(name: str) -> bool:
@@ -471,39 +457,38 @@ def _is_motorsport_argentina_related(match: dict[str, Any]) -> bool:
 
 
 def clasificar_partido(match: dict[str, Any]) -> str | None:
+    existing_category = _normalize_text(match.get("category"))
+    if existing_category in VALID_CATEGORIES:
+        return existing_category
+
     home = _safe_str(match.get("home_team"))
     away = _safe_str(match.get("away_team"))
     comp = _safe_str(match.get("competition"))
     sport = _normalize_text(match.get("sport"))
 
+    if sport in {"motorsport", "motogp", "dakar"}:
+        return "motorsport" if _is_motorsport_argentina_related(match) else None
+
     if sport not in {"futbol", "football", "soccer"}:
-        if sport in {"motorsport", "motogp", "dakar"} and _is_motorsport_argentina_related(match):
-            return "motorsport"
         return None
 
-    # Selección
     if _is_selection_name(home) or _is_selection_name(away):
         return "selecciones"
 
     home_arg = _is_exact_argentine_club(home)
     away_arg = _is_exact_argentine_club(away)
 
-    # Ligas locales: si la competencia es local argentina
     if _is_local_competition(comp):
-        # si ambos parecen argentinos, mejor; si no, igual es local por competencia
         return "ligas_locales"
 
-    # Exterior: SOLO si es competencia internacional real y hay club argentino exacto
     if _is_international_competition(comp) and (home_arg or away_arg):
         return "exterior"
 
-    # Competencia genérica: solo conservar si ambos clubes son argentinos -> ligas_locales
     if _is_generic_competition(comp):
         if home_arg and away_arg:
             return "ligas_locales"
         return None
 
-    # Todo lo demás se descarta
     return None
 
 
@@ -541,7 +526,7 @@ def _build_sections(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     for match in matches:
         tipo = clasificar_partido(match)
-        if tipo and tipo in sections_map:
+        if tipo in sections_map:
             match["category"] = tipo
             sections_map[tipo]["items"].append(match)
 
@@ -552,10 +537,6 @@ def _build_sections(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     return ordered
 
-
-# -------------------------------------------------------------------
-# Ejecución de un deporte
-# -------------------------------------------------------------------
 
 async def _run_adapter(scraper_cls: type[BaseScraper], sport: str, target_date: str) -> list[Any]:
     scraper = scraper_cls()
@@ -612,24 +593,17 @@ async def run_sport(sport: str, target_date: str) -> list[dict[str, Any]]:
     return deepcopy(normalized_matches)
 
 
-# -------------------------------------------------------------------
-# Resumen diario unificado
-# -------------------------------------------------------------------
-
 async def get_today_summary(target_date: str) -> dict[str, Any]:
     cached = _SUMMARY_CACHE.get(target_date)
     if cached is not None:
         return deepcopy(cached)
 
     all_matches: list[dict[str, Any]] = []
-    by_sport_raw: dict[str, list[dict[str, Any]]] = {}
 
     for sport in ADAPTER_REGISTRY.keys():
         matches = await run_sport(sport, target_date)
-        by_sport_raw[sport] = matches
         all_matches.extend(matches)
 
-    # Filtramos solo lo editorialmente útil
     editorial_matches: list[dict[str, Any]] = []
     for m in all_matches:
         tipo = clasificar_partido(m)
@@ -647,7 +621,7 @@ async def get_today_summary(target_date: str) -> dict[str, Any]:
     sections = _build_sections(editorial_matches)
     now_arg = _now_art()
 
-    by_sport = {}
+    by_sport: dict[str, int] = {}
     for m in editorial_matches:
         sport = _normalize_text(m.get("sport"))
         if sport == "football":
