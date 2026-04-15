@@ -28,6 +28,7 @@ type HoyData = {
 
 const POLLING_MS = 15_000;
 const SECOND_MS = 1_000;
+const FETCH_TIMEOUT_MS = 12_000;
 const BLOCK_LIMIT = 8;
 
 export default function HoyPage() {
@@ -41,22 +42,18 @@ export default function HoyPage() {
 
     const fetchHoy = async () => {
       try {
-        const res = await fetch("/api/proxy/api/hoy", { cache: "no-store" });
-        const json = await res.json();
-
-        if (!res.ok) {
-          throw new Error("No se pudo cargar la portada de hoy");
-        }
-
-        const parsed = extractHoyData(json);
+        const payload = await fetchHoyPayload();
+        const parsed = extractHoyData(payload);
 
         if (!cancelled) {
           setData(parsed);
           setError("");
         }
-      } catch {
+      } catch (err) {
+        console.error("[hoy] fetch failed", err);
         if (!cancelled) {
-          setError("No se pudo cargar la portada de hoy");
+          setError("No se pudo cargar la portada de hoy. Reintentamos automáticamente.");
+          setData((prev) => prev || { matches: [] });
         }
       } finally {
         if (!cancelled) {
@@ -608,4 +605,48 @@ function toNullableNumber(value: unknown): number | null | undefined {
   if (value === undefined || value === "") return undefined;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+async function fetchHoyPayload(): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const res = await fetch("/api/proxy/api/hoy", {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    const text = await res.text();
+    const payload = safeJsonParse(text);
+
+    if (!res.ok) {
+      const detail =
+        pickString(
+          (payload as Record<string, unknown>)?.error,
+          (payload as Record<string, unknown>)?.detail,
+          (payload as Record<string, unknown>)?.message,
+        ) || `HTTP ${res.status}`;
+      throw new Error(detail);
+    }
+
+    return payload;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Timeout al consultar portada de hoy");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function safeJsonParse(text: string): unknown {
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    console.warn("[hoy] invalid JSON payload from proxy");
+    return {};
+  }
 }
