@@ -24,21 +24,32 @@ EXCLUDE_KEYWORDS = [
     "union la calera", "deportes concepcion", "colo colo", "universidad de chile",
 ]
 
+TOP_LEAGUE_KEYWORDS = [
+    "premier league", "la liga", "serie a", "bundesliga", "ligue 1", "champions league"
+]
+
+
 def _norm(s: str | None) -> str:
     return (s or "").strip().lower()
+
+
+def _haystack(m: Match) -> str:
+    return " ".join([
+        _norm(getattr(m, "competition", "")),
+        _norm(getattr(m, "home_team", "")),
+        _norm(getattr(m, "away_team", "")),
+        _norm(getattr(m, "argentina_team", "")),
+    ])
+
 
 def _is_argentina_match(m: Match) -> bool:
     # Si el pipeline ya marcó relevancia argentina, respetar
     if getattr(m, "argentina_relevance", "none") != "none":
         return True
 
-    hay = " ".join([
-        _norm(getattr(m, "competition", "")),
-        _norm(getattr(m, "home_team", "")),
-        _norm(getattr(m, "away_team", "")),
-        _norm(getattr(m, "argentina_team", "")),
-    ])
+    hay = _haystack(m)
     return any(k in hay for k in ARG_KEYWORDS)
+
 
 def _is_excluded_match(m: Match) -> bool:
     hay = " ".join([
@@ -48,11 +59,58 @@ def _is_excluded_match(m: Match) -> bool:
     ])
     return any(k in hay for k in EXCLUDE_KEYWORDS)
 
+
+def _relevance_score(m: Match) -> int:
+    """
+    Reglas editoriales (más alto = más importante):
+    - Selección Argentina > clubes argentinos > copas/ligas argentinas > argentinos en ligas top > resto.
+    """
+    score = 10
+    hay = _haystack(m)
+    sport = _norm(getattr(m, "sport", ""))
+    argentina_relevance = _norm(getattr(m, "argentina_relevance", "none"))
+
+    if argentina_relevance == "seleccion":
+        score += 120
+    elif argentina_relevance == "club_arg":
+        score += 95
+    elif argentina_relevance == "jugador_arg":
+        score += 70
+
+    if sport == "futbol":
+        score += 40
+
+    if "selección argentina" in hay:
+        score += 90
+
+    if "liga profesional" in hay or "copa argentina" in hay:
+        score += 80
+
+    if "libertadores" in hay or "sudamericana" in hay:
+        score += 75
+
+    if any(k in hay for k in TOP_LEAGUE_KEYWORDS) and _is_argentina_match(m):
+        score += 60
+
+    if _norm(getattr(m, "status", "")) == "live":
+        score += 15
+
+    if getattr(m, "argentina_team", None):
+        score += 12
+
+    return score
+
+
 def _sort(matches: list) -> list:
     return sorted(
         matches,
-        key=lambda m: (STATUS_ORDER.get(m.status, 9), m.start_time or "")
+        key=lambda m: (
+            STATUS_ORDER.get(m.status, 9),
+            -_relevance_score(m),
+            m.start_time or "99:99"
+        )
     )
+
 
 def _clean(matches: list[Match]) -> list[Match]:
     # 1) excluye ruido explícito
@@ -60,6 +118,7 @@ def _clean(matches: list[Match]) -> list[Match]:
     # 2) prioriza relevancia argentina si existe señal (evita cross-country noise)
     arg = [m for m in filtered if _is_argentina_match(m)]
     return arg if arg else filtered
+
 
 async def _read_cache(key: str) -> list[Match]:
     """Lee cache → last_valid → []. NUNCA scrapea."""
@@ -80,14 +139,14 @@ async def get_hoy() -> dict:
     matches: list[Match] = await _read_cache("hoy:all")
     matches = _clean(matches)
 
-    live      = [m for m in matches if m.status == "live"]
-    upcoming  = [m for m in matches if m.status == "upcoming"]
-    finished  = [m for m in matches if m.status == "finished"]
+    live = [m for m in matches if m.status == "live"]
+    upcoming = [m for m in matches if m.status == "upcoming"]
+    finished = [m for m in matches if m.status == "finished"]
     return {
-        "en_vivo":    _sort(live),
-        "proximos":   _sort(upcoming),
+        "en_vivo": _sort(live),
+        "proximos": _sort(upcoming),
         "finalizados": _sort(finished),
-        "total":      len(matches),
+        "total": len(matches),
     }
 
 
@@ -117,7 +176,7 @@ async def get_hockey_hoy() -> list[Match]:
 
 
 async def get_sport_hoy(sport: str) -> list[Match]:
-    return _sort(_clean(await _read_cache(f"today:{sport}")))
+    return _sort(_clean(await _read_cache(f"today:{sport}")) )
 
 
 # ── Compat con rutas viejas /api/matches/* ──────────────────────────────────
