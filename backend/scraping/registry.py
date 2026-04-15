@@ -1,16 +1,11 @@
 """
 Registry central de adapters + agregador Argentina-first para El Tablón Albiceleste.
 
-Objetivos:
-- Safe imports: un adapter roto no rompe todo
-- Cache por deporte y por fecha
-- Resumen diario unificado para /api/hoy, /api/live, /api/resultados, /api/calendario
-- Clasificación editorial argentina:
-    1) selecciones
-    2) exterior
-    3) ligas_locales
-    4) motorsport
-- Filtro más estricto para fútbol aunque el adapter todavía no esté perfecto
+Versión endurecida:
+- elimina falsos positivos de clubes argentinos
+- clasifica mejor fútbol
+- mantiene cache por día
+- construye sections para /api/hoy y /api/calendario
 """
 
 from __future__ import annotations
@@ -29,16 +24,11 @@ logger = logging.getLogger(__name__)
 
 ART_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# Expuesto para debug API
 LOAD_ERRORS: dict[str, str] = {}
 
-# Cache simple en memoria
 _SUMMARY_CACHE: dict[str, dict[str, Any]] = {}
 _SPORT_CACHE: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
-# -------------------------------------------------------------------
-# Carga segura de adapters
-# -------------------------------------------------------------------
 
 def _load(module: str, cls: str):
     try:
@@ -78,130 +68,6 @@ for sport, (mod, cls_name) in _MAP.items():
 
 logger.info(f"[registry] activos: {list(ADAPTER_REGISTRY.keys())}")
 
-# -------------------------------------------------------------------
-# Reglas editoriales ARGENTINA FIRST
-# -------------------------------------------------------------------
-
-ARGENTINA_SELECTION_PATTERNS = [
-    r"\bargentina\b",
-    r"\bselecci[oó]n argentina\b",
-    r"\balbiceleste\b",
-    r"\bsub[- ]?17\b",
-    r"\bsub[- ]?20\b",
-    r"\bsub[- ]?23\b",
-    r"\bjuvenil(?:es)?\b",
-]
-
-ARGENTINE_CLUBS = {
-    "argentinos juniors",
-    "arsenal de sarandi",
-    "arsenal",
-    "atletico tucuman",
-    "banfield",
-    "barracas central",
-    "belgrano",
-    "boca juniors",
-    "central cordoba",
-    "defensa y justicia",
-    "deportivo riestra",
-    "estudiantes",
-    "estudiantes de la plata",
-    "gimnasia",
-    "gimnasia y esgrima la plata",
-    "godoy cruz",
-    "huracan",
-    "independiente",
-    "independiente rivadavia",
-    "instituto",
-    "lanus",
-    "newells",
-    "newell's",
-    "platense",
-    "racing",
-    "racing club",
-    "river",
-    "river plate",
-    "rosario central",
-    "san lorenzo",
-    "san martin de san juan",
-    "sarmiento",
-    "talleres",
-    "tigre",
-    "union",
-    "union de santa fe",
-    "velez",
-    "velez sarsfield",
-    "aldosivi",
-    "colon",
-    "chacarita",
-    "ferro",
-    "quilmes",
-    "all boys",
-    "temperley",
-    "almagro",
-    "agropecuario",
-    "alvarado",
-    "mitre",
-    "patronato",
-    "gimnasia de mendoza",
-    "deportivo madryn",
-    "san martin tucuman",
-    "san martin de tucuman",
-    "tristan suarez",
-    "nueva chicago",
-    "defensores de belgrano",
-    "almirante brown",
-    "estudiantes de rio cuarto",
-    "chaco for ever",
-    "brown de adrogue",
-    "deportivo maipu",
-    "gimnasia de jujuy",
-    "atlanta",
-    "los andes",
-    "talleres rem de escalada",
-    "deportivo moron",
-    "colon de santa fe",
-    "barracas",
-    "union santa fe",
-}
-
-LOCAL_COMPETITION_PATTERNS = [
-    "liga profesional",
-    "copa de la liga",
-    "primera nacional",
-    "primera b",
-    "primera c",
-    "federal a",
-    "torneo federal",
-    "copa argentina",
-    "supercopa argentina",
-    "reserva",
-    "liga argentina",
-    "lnb",
-    "liga nacional",
-    "liga femenina",
-    "urba",
-    "top 12",
-    "metropolitano",
-    "torneo del interior",
-    "liga de voley argentina",
-    "lnv",
-    "liga de futsal afa",
-    "afa futsal",
-]
-
-MOTORSPORT_ARG_PATTERNS = [
-    "colapinto",
-    "franco colapinto",
-    "argentina",
-    "argentino",
-    "tc ",
-    "turismo carretera",
-    "top race",
-    "tn clase",
-    "turismo nacional",
-    "superbike argentino",
-]
 
 STATUS_ALIASES = {
     "live": "live",
@@ -252,26 +118,144 @@ SPORT_ORDER = {
     "olimpicos": 15,
 }
 
-# -------------------------------------------------------------------
-# Helpers
-# -------------------------------------------------------------------
+ARGENTINA_SELECTION_ALIASES = {
+    "argentina",
+    "seleccion argentina",
+    "argentina sub 17",
+    "argentina sub 20",
+    "argentina sub 23",
+    "argentina u17",
+    "argentina u20",
+    "argentina u23",
+    "argentina women",
+    "argentina femenino",
+    "argentina femenina",
+    "argentina women national team",
+}
+
+# Alias exactos controlados.
+# Acá evitamos nombres demasiado genéricos como "arsenal", "union", "barracas".
+ARGENTINE_CLUB_ALIASES = {
+    "argentinos juniors",
+    "atletico tucuman",
+    "aldosivi",
+    "arsenal de sarandi",
+    "arsenal sarandi",
+    "banfield",
+    "barracas central",
+    "belgrano",
+    "boca juniors",
+    "central cordoba",
+    "central cordoba sdE",
+    "central cordoba sde",
+    "chacarita juniors",
+    "colon",
+    "colon de santa fe",
+    "defensa y justicia",
+    "deportivo riestra",
+    "estudiantes",
+    "estudiantes de la plata",
+    "ferro",
+    "ferro carril oeste",
+    "gimnasia",
+    "gimnasia y esgrima la plata",
+    "godoy cruz",
+    "huracan",
+    "independiente",
+    "independiente rivadavia",
+    "instituto",
+    "lanus",
+    "newells old boys",
+    "newells",
+    "newells",
+    "newell's old boys",
+    "platense",
+    "quilmes",
+    "racing",
+    "racing club",
+    "river plate",
+    "rosario central",
+    "san lorenzo",
+    "san martin de tucuman",
+    "san martin tucuman",
+    "san martin de san juan",
+    "sarmiento",
+    "talleres",
+    "talleres de cordoba",
+    "tigre",
+    "union de santa fe",
+    "union santa fe",
+    "velez",
+    "velez sarsfield",
+}
+
+LOCAL_COMPETITION_PATTERNS = [
+    "liga profesional",
+    "copa de la liga",
+    "primera nacional",
+    "primera b",
+    "primera c",
+    "federal a",
+    "torneo federal",
+    "copa argentina",
+    "supercopa argentina",
+    "reserva",
+    "liga argentina",
+    "liga nacional",
+    "lnb",
+    "urba",
+    "top 12",
+    "metropolitano",
+    "torneo del interior",
+    "liga de voley argentina",
+    "liga de vóley argentina",
+    "lnv",
+    "liga de futsal afa",
+    "afa futsal",
+]
+
+MOTORSPORT_ARG_PATTERNS = [
+    "colapinto",
+    "franco colapinto",
+    "argentina",
+    "argentino",
+    "turismo carretera",
+    "tc ",
+    "top race",
+    "turismo nacional",
+    "tn clase",
+    "superbike argentino",
+]
+
 
 def _now_art() -> datetime:
     return datetime.now(ART_TZ)
+
+
+def _safe_str(value: Any) -> str:
+    return "" if value is None else str(value).strip()
 
 
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
     text = str(value).strip().lower()
-    text = text.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-    text = text.replace("'", "")
-    text = re.sub(r"\s+", " ", text)
+    text = (
+        text.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        .replace("ü", "u")
+        .replace("'", "")
+        .replace(".", " ")
+        .replace(",", " ")
+        .replace("-", " ")
+        .replace("_", " ")
+        .replace("/", " ")
+    )
+    text = re.sub(r"\s+", " ", text).strip()
     return text
-
-
-def _safe_str(value: Any) -> str:
-    return "" if value is None else str(value).strip()
 
 
 def _first_non_empty(d: dict[str, Any], keys: list[str], default: Any = None) -> Any:
@@ -304,16 +288,7 @@ def _infer_sport(match: dict[str, Any], fallback_sport: str) -> str:
 def _extract_match_datetime(match: dict[str, Any]) -> str | None:
     return _first_non_empty(
         match,
-        [
-            "start_time",
-            "datetime",
-            "date_time",
-            "kickoff",
-            "starts_at",
-            "scheduled_at",
-            "utc_date",
-            "date",
-        ],
+        ["start_time", "datetime", "date_time", "kickoff", "starts_at", "scheduled_at", "utc_date", "date"],
     )
 
 
@@ -362,24 +337,65 @@ def _normalize_match(raw_match: Any, fallback_sport: str) -> dict[str, Any]:
     return normalized
 
 
-def _is_selection_name(name: str) -> bool:
+def _canonicalize_team_name(name: str) -> str:
     text = _normalize_text(name)
-    if not text:
-        return False
-    return any(re.search(pattern, text) for pattern in ARGENTINA_SELECTION_PATTERNS)
+
+    replacements = {
+        "ca ": "",
+        "c a ": "",
+        "fc ": "",
+        "sc ": "",
+        "club atletico ": "",
+        "club atletico": "",
+        "club ": "",
+        "deportivo ": "deportivo ",
+        "atletico ": "atletico ",
+    }
+
+    for old, new in replacements.items():
+        if text.startswith(old):
+            text = (new + text[len(old):]).strip()
+
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _is_selection_name(name: str) -> bool:
+    text = _canonicalize_team_name(name)
+    if text in ARGENTINA_SELECTION_ALIASES:
+        return True
+    return text.startswith("argentina ")
 
 
 def _is_argentine_club(name: str) -> bool:
-    text = _normalize_text(name)
+    text = _canonicalize_team_name(name)
+
     if not text:
         return False
 
-    if text in ARGENTINE_CLUBS:
+    if text in ARGENTINE_CLUB_ALIASES:
         return True
 
-    for club in ARGENTINE_CLUBS:
-        if club in text or text in club:
-            return True
+    exact_alias_map = {
+        "racing club avellaneda": "racing club",
+        "club atletico river plate": "river plate",
+        "club atletico boca juniors": "boca juniors",
+        "club atletico independiente": "independiente",
+        "club atletico rosario central": "rosario central",
+        "club atletico tigre": "tigre",
+        "club atletico lanus": "lanus",
+        "club atletico huracan": "huracan",
+        "club atletico belgrano": "belgrano",
+        "club atletico banfield": "banfield",
+        "club atletico union": "union de santa fe",
+        "club atletico talleres": "talleres",
+        "club atletico san lorenzo": "san lorenzo",
+        "club atletico velez sarsfield": "velez sarsfield",
+    }
+
+    mapped = exact_alias_map.get(text)
+    if mapped and mapped in ARGENTINE_CLUB_ALIASES:
+        return True
 
     return False
 
@@ -402,7 +418,6 @@ def _is_motorsport_argentina_related(match: dict[str, Any]) -> bool:
             _safe_str(match.get("raw")),
         ]
     ).lower()
-
     return any(pattern in haystack for pattern in MOTORSPORT_ARG_PATTERNS)
 
 
@@ -420,9 +435,6 @@ def _classify_football(match: dict[str, Any]) -> tuple[bool, str, str, list[str]
             entities.append(away)
         return True, "selecciones", "seleccion", entities
 
-    home_is_arg = _is_argentine_club(home)
-    away_is_arg = _is_argentine_club(away)
-
     if _is_local_competition(competition):
         if home:
             entities.append(home)
@@ -430,10 +442,13 @@ def _classify_football(match: dict[str, Any]) -> tuple[bool, str, str, list[str]
             entities.append(away)
         return True, "ligas_locales", "liga_local", entities
 
+    home_is_arg = _is_argentine_club(home)
+    away_is_arg = _is_argentine_club(away)
+
     if home_is_arg or away_is_arg:
-        if home_is_arg and home:
+        if home_is_arg:
             entities.append(home)
-        if away_is_arg and away:
+        if away_is_arg:
             entities.append(away)
         return True, "exterior", "equipo_argentino", entities
 
@@ -451,8 +466,6 @@ def _classify_non_football(match: dict[str, Any], sport: str) -> tuple[bool, str
             return True, "motorsport", "motor_arg", entities
         return False, "", "", []
 
-    # Para deportes individuales, por ahora solo dejamos pasar si el adapter ya
-    # marcó explícitamente relevancia argentina.
     existing_reason = _safe_str(match.get("argentina_reason"))
     if existing_reason:
         return True, "exterior", existing_reason, match.get("argentina_entities", []) or []
@@ -535,14 +548,9 @@ def _build_sections(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return ordered
 
 
-# -------------------------------------------------------------------
-# Ejecución de un deporte
-# -------------------------------------------------------------------
-
 async def _run_adapter(scraper_cls: type[BaseScraper], sport: str, target_date: str) -> list[Any]:
     scraper = scraper_cls()
 
-    # Intento 1: scrape(date)
     try:
         return await scraper.scrape(target_date)
     except TypeError:
@@ -550,7 +558,6 @@ async def _run_adapter(scraper_cls: type[BaseScraper], sport: str, target_date: 
     except Exception:
         raise
 
-    # Intento 2: scrape() sin date
     return await scraper.scrape()
 
 
@@ -586,14 +593,9 @@ async def run_sport(sport: str, target_date: str) -> list[dict[str, Any]]:
 
     normalized_matches.sort(key=_sort_key)
     _SPORT_CACHE[cache_key] = deepcopy(normalized_matches)
-
     logger.info(f"[{sport}] relevantes={len(normalized_matches)} date={target_date}")
     return deepcopy(normalized_matches)
 
-
-# -------------------------------------------------------------------
-# Resumen diario unificado
-# -------------------------------------------------------------------
 
 async def get_today_summary(target_date: str) -> dict[str, Any]:
     cached = _SUMMARY_CACHE.get(target_date)
