@@ -1,17 +1,26 @@
 """
 Health + debug endpoints.
-/api/health        — siempre vivo
-/api/health/full   — estado del sistema
-/api/debug/scraping — test en vivo, todos los deportes
+
+Rutas:
+- /api/health
+- /api/health/full
+- /api/health/scraping-quality
+- /api/debug/scraping
+- /api/debug/all
 """
+
 import time
 import logging
+from collections import Counter, defaultdict
+from typing import Any, Dict, List
+
 from fastapi import APIRouter
+
 from app.cache import cache
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-DEBUG_TAG = "scrape-debug-v3-2026-04-13"
+DEBUG_TAG = "scrape-debug-v4-2026-04-15"
 
 
 @router.get("/health")
@@ -36,6 +45,107 @@ async def health_full():
     }
 
 
+def _extract_cache_keys(cache_stats: Dict[str, Any]) -> List[str]:
+    keys = cache_stats.get("keys") or []
+    if isinstance(keys, list):
+        return keys
+    return []
+
+
+def _group_keys(keys: List[str]) -> Dict[str, int]:
+    grouped = defaultdict(int)
+    for key in keys:
+        if ":" in key:
+            prefix = key.split(":", 1)[0]
+        else:
+            prefix = key
+        grouped[prefix] += 1
+    return dict(grouped)
+
+
+def _extract_sport_from_key(key: str) -> str:
+    lowered = key.lower()
+    candidates = [
+        "futbol",
+        "tenis",
+        "basquet",
+        "rugby",
+        "hockey",
+        "voley",
+        "handball",
+        "futsal",
+        "golf",
+        "boxeo",
+        "motorsport",
+        "motogp",
+        "polo",
+        "esports",
+        "dakar",
+        "olimpicos",
+    ]
+    for sport in candidates:
+        if sport in lowered:
+            return sport
+    if "today" in lowered or "hoy" in lowered:
+        return "agenda"
+    if "live" in lowered:
+        return "live"
+    return "otros"
+
+
+def _safe_len(value: Any) -> int:
+    try:
+        return len(value)
+    except Exception:
+        return 0
+
+
+@router.get("/health/scraping-quality")
+async def scraping_quality():
+    """
+    Reporte liviano basado en cache/estado actual.
+    No depende de scraping en vivo.
+    """
+    started = time.monotonic()
+    cache_stats = await cache.stats()
+    keys = _extract_cache_keys(cache_stats)
+    last_valid_keys = cache_stats.get("last_valid_keys") or []
+
+    sport_counter = Counter()
+    for key in keys:
+        sport_counter[_extract_sport_from_key(key)] += 1
+
+    generic_competition_signals = 0
+    missing_start_time_signals = 0
+
+    # Señales blandas desde nombres de claves; no scraping en vivo
+    for key in keys:
+        lowered = key.lower()
+        if "futbol" in lowered and ("today" in lowered or "hoy" in lowered):
+            generic_competition_signals += 1
+            missing_start_time_signals += 1
+
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "duration_ms": round((time.monotonic() - started) * 1000),
+        "cache_backend": cache_stats.get("backend"),
+        "active_keys": _safe_len(keys),
+        "last_valid_keys_count": _safe_len(last_valid_keys),
+        "groups": _group_keys(keys),
+        "sports_present": dict(sport_counter),
+        "coverage_signals": {
+            "generic_competition_signal": generic_competition_signals,
+            "missing_start_time_signal": missing_start_time_signals,
+        },
+        "notes": [
+            "Reporte basado en cache y estado observable del backend.",
+            "No ejecuta scraping en vivo.",
+            "Sirve para visibilidad operativa básica.",
+        ],
+    }
+
+
 @router.get("/debug/scraping")
 async def debug_scraping(sport: str = "futbol"):
     """
@@ -54,7 +164,7 @@ async def debug_scraping(sport: str = "futbol"):
     }
 
     try:
-        from app.scraping_bridge import _SCRAPING_OK, _to_match
+        from app.scraping_bridge import _SCRAPING_OK
         result["scraping_ok"] = _SCRAPING_OK
         if not _SCRAPING_OK:
             result["errors"].append("scraping package not importable")
@@ -63,8 +173,11 @@ async def debug_scraping(sport: str = "futbol"):
         from scraping.registry import ADAPTER_REGISTRY, LOAD_ERRORS
         result["registry_load_errors"] = LOAD_ERRORS
         if sport not in ADAPTER_REGISTRY:
-            result["errors"].append(f"'{sport}' no está en ADAPTER_REGISTRY. Disponibles: {list(ADAPTER_REGISTRY.keys())}")
+            result["errors"].append(
+                f"'{sport}' no está en ADAPTER_REGISTRY. Disponibles: {list(ADAPTER_REGISTRY.keys())}"
+            )
             return result
+
         adapter_cls = ADAPTER_REGISTRY[sport]
         result["sources_tried"] = getattr(adapter_cls, "SOURCE_ORDER", [])
         result["source_diagnostics"] = getattr(adapter_cls, "LAST_RUN", {})
@@ -73,6 +186,7 @@ async def debug_scraping(sport: str = "futbol"):
         coord = ScrapingCoordinator({sport: ADAPTER_REGISTRY[sport]}, timeout_per_adapter=25)
         normalized = await coord.run_all_flat()
         arg = coord.get_argentina_matches(normalized)
+
         if sport != "futbol" and not arg:
             arg = normalized
             result["used_non_arg_fallback"] = True
@@ -87,9 +201,9 @@ async def debug_scraping(sport: str = "futbol"):
                 "status": m.status,
                 "minute": m.minute,
                 "competition": m.competition,
-                "source": m.source,
+                "source": getattr(m, "source", None),
                 "relevance": m.argentina_relevance,
-                "start_time": m.start_time_arg,
+                "start_time": getattr(m, "start_time_arg", None),
             }
             for m in arg[:10]
         ]
@@ -105,11 +219,12 @@ async def debug_scraping(sport: str = "futbol"):
 async def debug_all_sports():
     """Test rápido de todos los deportes activos. Muestra count por deporte."""
     from app.config import settings
+
     t0 = time.monotonic()
     summary = {}
 
     try:
-        from app.scraping_bridge import _SCRAPING_OK, _to_match
+        from app.scraping_bridge import _SCRAPING_OK
         if not _SCRAPING_OK:
             return {"error": "scraping not importable"}
 
@@ -125,8 +240,10 @@ async def debug_all_sports():
             summary[sp] = {
                 "total": len(matches),
                 "argentina": len(arg),
-                "sample": [{"home": m.home_team, "away": m.away_team, "source": m.source}
-                           for m in arg[:2]],
+                "sample": [
+                    {"home": m.home_team, "away": m.away_team, "source": getattr(m, "source", None)}
+                    for m in arg[:2]
+                ],
             }
     except Exception as e:
         logger.error(f"[debug/all] {e}", exc_info=True)
