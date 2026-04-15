@@ -22,14 +22,23 @@ export async function GET(
   const target = `${base}/${path}${query}`
 
   try {
-    const res = await fetch(target, { cache: 'no-store' })
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10000)
+    const res = await fetch(target, { cache: 'no-store', signal: controller.signal })
+    clearTimeout(timer)
     const text = await res.text()
 
     return new NextResponse(text, {
       status: res.status,
       headers: { 'Content-Type': res.headers.get('Content-Type') ?? 'application/json' },
     })
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { detail: 'Proxy timeout to backend API' },
+        { status: 504 }
+      )
+    }
     return NextResponse.json(
       { detail: 'Proxy error to backend API' },
       { status: 502 }
