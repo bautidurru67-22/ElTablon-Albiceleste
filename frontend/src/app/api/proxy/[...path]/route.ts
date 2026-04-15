@@ -25,12 +25,18 @@ export async function GET(
   const timer = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS)
 
   try {
-    const res = await fetch(target, { cache: 'no-store', signal: controller.signal })
+    const res = await fetch(target, {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+
     const text = await res.text()
 
     return new NextResponse(text, {
       status: res.status,
-      headers: { 'Content-Type': res.headers.get('Content-Type') ?? 'application/json' },
+      headers: {
+        'Content-Type': res.headers.get('Content-Type') ?? 'application/json',
+      },
     })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
@@ -52,11 +58,5 @@ export async function GET(
     )
   } finally {
     clearTimeout(timer)
-  }
-}
-    return NextResponse.json(
-      { detail: 'Proxy error to backend API' },
-      { status: 502 }
-    )
   }
 }
