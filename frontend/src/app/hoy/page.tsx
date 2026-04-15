@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Match = {
   id: string;
@@ -13,250 +13,108 @@ type Match = {
   status: string;
   minute?: string | null;
   start_time?: string | null;
-  tv?: string | null;
-  category?: string;
-};
-
-type Section = {
-  key: string;
-  title: string;
-  items: Match[];
-};
-
-type HoyData = {
-  date: string;
-  updated_at: string;
-  matches: Match[];
-  sections: Section[];
-  stats: {
-    live: number;
-    upcoming: number;
-    finished: number;
-    total: number;
-  };
-  summary?: {
-    live: number;
-    upcoming: number;
-    finished: number;
-    total: number;
-  };
-  by_sport?: Record<string, number>;
 };
 
 export default function HoyPage() {
-  const [data, setData] = useState<HoyData | null>(null);
-  const [error, setError] = useState("");
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/proxy/api/hoy", { cache: "no-store" })
-      .then(async (res) => {
-        const json = await res.json();
-        if (!res.ok || !json?.ok || !json?.data) {
-          throw new Error(json?.error || "No se pudo cargar la agenda");
-        }
-        setData(json.data);
-      })
-      .catch(() => setError("No se pudo cargar la agenda"));
+      .then((r) => r.json())
+      .then((json) => {
+        setMatches(json?.data?.matches || []);
+        setLoading(false);
+      });
   }, []);
 
-  const summary = useMemo(() => {
-    if (!data) {
-      return { live: 0, upcoming: 0, finished: 0, total: 0 };
-    }
-    return data.summary || data.stats || { live: 0, upcoming: 0, finished: 0, total: 0 };
-  }, [data]);
+  const live = matches.filter((m) => m.status === "live");
+  const upcoming = matches.filter((m) => m.status === "upcoming");
+  const finished = matches.filter((m) => m.status === "finished");
 
-  if (error) {
-    return (
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-        {error}
-      </div>
-    );
-  }
+  const hero =
+    live[0] || upcoming[0] || matches[0];
 
-  if (!data) {
-    return (
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-        Cargando agenda...
-      </div>
-    );
-  }
-
-  const sections = data.sections || [];
-  const liveMatches = (data.matches || []).filter((m) => m.status === "live");
+  if (loading) return <div style={{ padding: 20 }}>Cargando...</div>;
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-      <h1 style={{ fontSize: 24, fontWeight: "bold", marginBottom: 4 }}>
-        HOY - DONDE JUEGA ARGENTINA
-      </h1>
 
-      <div style={{ fontSize: 12, marginBottom: 16, lineHeight: 1.2 }}>
-        <div>Actualizado: {formatUpdatedAt(data.updated_at)}</div>
-        <div>{formatDateEs(data.date)}</div>
-      </div>
+      {/* HERO */}
+      {hero && (
+        <div
+          style={{
+            background: "#eaf3ff",
+            padding: 20,
+            borderRadius: 10,
+            marginBottom: 20,
+            border: "1px solid #d0e2ff"
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#0070f3", marginBottom: 6 }}>
+            {hero.status === "live" ? "EN VIVO" : "PRÓXIMO"}
+          </div>
 
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-        <div style={{ flex: 1 }}>
-          <SectionBox
-            title="EN VIVO"
-            bg="#f8eaea"
-            matches={liveMatches}
-            emptyText="Sin partidos en vivo."
-          />
+          <div style={{ fontSize: 18, fontWeight: "bold" }}>
+            {hero.home_team} vs {hero.away_team}
+          </div>
 
-          {sections.map((section) => (
-            <SectionBox
-              key={section.key}
-              title={mapTitle(section.key, section.title)}
-              bg="#efefef"
-              matches={section.items || []}
-            />
-          ))}
+          <div style={{ fontSize: 14, color: "#555" }}>
+            {hero.competition}
+          </div>
         </div>
+      )}
 
-        <div style={{ width: 180 }}>
-          <SidebarBox title="RESUMEN DE HOY">
-            <SidebarRow label="En vivo" value={summary.live} />
-            <SidebarRow label="Próximos" value={summary.upcoming} />
-            <SidebarRow label="Finalizados" value={summary.finished} />
-            <SidebarRow label="Total" value={summary.total} />
-          </SidebarBox>
-
-          {!!data.by_sport && Object.keys(data.by_sport).length > 0 && (
-            <SidebarBox title="POR DEPORTE">
-              {Object.entries(data.by_sport).map(([key, value]) => (
-                <SidebarRow key={key} label={key} value={value} />
-              ))}
-            </SidebarBox>
-          )}
-        </div>
-      </div>
+      {/* BLOQUES */}
+      <Block title="EN VIVO" matches={live} empty="Sin partidos en vivo" />
+      <Block title="PRÓXIMOS" matches={upcoming} />
+      <Block title="FINALIZADOS" matches={finished} />
     </div>
   );
 }
 
-function SectionBox({
+function Block({
   title,
   matches,
-  bg,
-  emptyText,
+  empty
 }: {
   title: string;
   matches: Match[];
-  bg: string;
-  emptyText?: string;
+  empty?: string;
 }) {
-  if (!matches?.length && !emptyText) return null;
-
   return (
-    <div style={{ border: "1px solid #d7d7d7", marginBottom: 10, background: "#fff" }}>
-      <div style={{ background: bg, padding: "6px 8px", fontWeight: "bold" }}>
-        {title}
-      </div>
+    <div style={{ marginBottom: 20 }}>
+      <h3 style={{ marginBottom: 10 }}>{title}</h3>
 
-      {!matches?.length ? (
-        <div style={{ padding: 10 }}>{emptyText}</div>
-      ) : (
-        matches.map((m, i) => <MatchRow key={`${m.id}-${i}`} match={m} />)
+      {matches.length === 0 && empty && (
+        <div style={{ color: "#888" }}>{empty}</div>
       )}
+
+      {matches.map((m) => (
+        <div
+          key={m.id}
+          style={{
+            border: "1px solid #eee",
+            padding: 10,
+            borderRadius: 8,
+            marginBottom: 8
+          }}
+        >
+          <div style={{ fontWeight: "bold" }}>
+            {m.home_team} vs {m.away_team}
+          </div>
+
+          <div style={{ fontSize: 12, color: "#666" }}>
+            {m.competition}
+          </div>
+
+          <div style={{ fontSize: 13 }}>
+            {m.home_score != null
+              ? `${m.home_score} - ${m.away_score}`
+              : m.start_time}
+          </div>
+        </div>
+      ))}
     </div>
   );
-}
-
-function MatchRow({ match }: { match: Match }) {
-  const scoreVisible =
-    match.home_score !== null &&
-    match.home_score !== undefined &&
-    match.away_score !== null &&
-    match.away_score !== undefined;
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        gap: 12,
-        padding: 10,
-        borderTop: "1px solid #ececec",
-      }}
-    >
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 12, color: "#666", marginBottom: 2 }}>
-          {match.competition || "Fútbol"}
-        </div>
-        <div style={{ fontSize: 13 }}>
-          {match.home_team} vs {match.away_team}
-        </div>
-      </div>
-
-      <div style={{ textAlign: "right", minWidth: 60 }}>
-        <div style={{ fontWeight: "bold" }}>
-          {scoreVisible ? `${match.home_score} - ${match.away_score}` : "-"}
-        </div>
-        <div style={{ fontSize: 12, color: "#666" }}>
-          {match.status === "live" ? (match.minute || "EN VIVO") : (match.start_time || "-")}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SidebarBox({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={{ border: "1px solid #d7d7d7", marginBottom: 10, background: "#fff" }}>
-      <div style={{ padding: "6px 8px", fontWeight: "bold" }}>{title}</div>
-      <div style={{ padding: "0 8px 8px 8px" }}>{children}</div>
-    </div>
-  );
-}
-
-function SidebarRow({ label, value }: { label: string; value: number }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-      <span>{label}:</span>
-      <span>{value}</span>
-    </div>
-  );
-}
-
-function mapTitle(key: string, fallback: string) {
-  if (key === "selecciones") return "Selecciones nacionales";
-  if (key === "ligas_locales") return "Ligas locales";
-  if (key === "exterior") return "Argentinos en el exterior";
-  if (key === "motorsport") return "Motorsport argentino";
-  return fallback || key;
-}
-
-function formatDateEs(dateStr: string) {
-  try {
-    const date = new Date(`${dateStr}T12:00:00`);
-    return date.toLocaleDateString("es-AR", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-function formatUpdatedAt(updatedAt: string) {
-  try {
-    const date = new Date(updatedAt);
-    return date.toLocaleString("es-AR", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return updatedAt;
-  }
 }
