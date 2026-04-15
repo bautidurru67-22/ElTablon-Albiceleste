@@ -85,18 +85,14 @@ export default function HoyPage() {
     );
   }
 
-  if (error && !data) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="rounded-2xl border border-red-500/40 bg-red-950/20 p-6 text-red-100">
-          {error}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      {error ? (
+        <div className="rounded-2xl border border-red-500/40 bg-red-950/20 p-4 text-red-100">
+          {error}
+        </div>
+      ) : null}
+
       <header className="rounded-3xl border border-sky-400/30 bg-gradient-to-br from-sky-500/20 via-blue-500/10 to-zinc-900 p-6 shadow-[0_0_60px_-30px_rgba(56,189,248,0.7)] sm:p-8">
         <div className="mb-4 flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-sky-100/80">
           <span className="rounded-full bg-sky-400/20 px-3 py-1">Portada / Hoy</span>
@@ -298,14 +294,8 @@ function normalizeStatus(status: string) {
 }
 
 function pickTopEvent(matches: Match[]) {
-  const sorted = sortByEditorialPriority(matches);
-  const live = sorted.find((m) => normalizeStatus(m.status) === "live");
-  if (live) return live;
-
-  const upcoming = sorted.find((m) => normalizeStatus(m.status) === "upcoming");
-  if (upcoming) return upcoming;
-
-  return sorted.find((m) => normalizeStatus(m.status) === "finished") || null;
+  const ranked = [...matches].sort((a, b) => heroPriorityScore(b) - heroPriorityScore(a));
+  return ranked[0] || null;
 }
 
 function sortByEditorialPriority(matches: Match[]) {
@@ -324,6 +314,12 @@ function statusPriority(status: "live" | "upcoming" | "finished") {
   if (status === "live") return 0;
   if (status === "upcoming") return 1;
   return 2;
+}
+
+function heroPriorityScore(match: Match) {
+  const status = normalizeStatus(match.status);
+  const statusBoost = status === "live" ? 8 : status === "upcoming" ? 4 : 0;
+  return relevanceScore(match) + statusBoost;
 }
 
 function relevanceScore(match: Match) {
@@ -346,17 +342,21 @@ function relevanceScore(match: Match) {
   let score = 10;
 
   if (pool.includes("selección argentina") || pool.includes("argentina")) score += 20;
-  if (match.argentina_relevance === "seleccion") score += 40;
-  if (match.argentina_relevance === "club_arg") score += 30;
-  if (match.argentina_relevance === "jugador_arg") score += 24;
+  if (match.argentina_relevance === "seleccion") score += 70;
+  if (match.argentina_relevance === "club_arg") score += 50;
+  if (match.argentina_relevance === "jugador_arg") score += 35;
 
-  if (sport === "futbol") score += 26;
-  if (pool.includes("liga profesional") || pool.includes("copa argentina")) score += 28;
-  if (pool.includes("libertadores") || pool.includes("sudamericana")) score += 24;
-  if (pool.includes("premier league") || pool.includes("serie a") || pool.includes("la liga") || pool.includes("bundesliga")) score += 16;
+  if (sport === "futbol") score += 30;
+  if (pool.includes("liga profesional") || pool.includes("copa argentina")) score += 34;
+  if (pool.includes("libertadores") || pool.includes("sudamericana")) score += 30;
+  if (pool.includes("primera nacional") || pool.includes("superliga")) score += 24;
+  if (pool.includes("premier league") || pool.includes("serie a") || pool.includes("la liga") || pool.includes("bundesliga")) score += 20;
 
-  if (normalizeStatus(match.status) === "live") score += 12;
-  if (match.argentina_team) score += 8;
+  if (normalizeStatus(match.status) === "live") score += 10;
+  if (match.argentina_team) score += 10;
+
+  if (isSessionEvent(match)) score -= 30;
+  if (["motorsport", "motogp"].includes(sport)) score -= 18;
 
   return score;
 }
@@ -483,11 +483,6 @@ function formatDateEs(dateStr: string | undefined) {
 }
 
 function extractHoyData(json: unknown): HoyData {
-  // Shapes soportados (proxy/backend):
-  // - json.data.matches
-  // - json.matches
-  // - json.data.data.matches
-  // - json.{en_vivo, proximos, finalizados} (o dentro de data/data)
   const containers = collectCandidateContainers(json);
 
   for (const container of containers) {
