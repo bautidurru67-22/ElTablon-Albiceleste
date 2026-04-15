@@ -1,15 +1,21 @@
 """
 Registry central de adapters + agregador Argentina-first para El Tablón Albiceleste.
 
-Versión endurecida:
-- elimina falsos positivos de clubes argentinos
-- clasifica mejor fútbol
-- mantiene cache por día
-- construye sections para /api/hoy y /api/calendario
+Objetivos:
+- Safe imports: un adapter roto no rompe todo
+- Cache por deporte y por fecha
+- Resumen diario unificado para /api/hoy, /api/live, /api/resultados, /api/calendario
+- Clasificación editorial argentina:
+    1) selecciones
+    2) exterior
+    3) ligas_locales
+    4) motorsport
+- Timeout por deporte para evitar 504 si un scraper tarda demasiado
 """
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import logging
 import re
@@ -24,11 +30,16 @@ logger = logging.getLogger(__name__)
 
 ART_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
+# Expuesto para debug API
 LOAD_ERRORS: dict[str, str] = {}
 
+# Cache simple en memoria
 _SUMMARY_CACHE: dict[str, dict[str, Any]] = {}
 _SPORT_CACHE: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
+# -------------------------------------------------------------------
+# Carga segura de adapters
+# -------------------------------------------------------------------
 
 def _load(module: str, cls: str):
     try:
@@ -68,6 +79,140 @@ for sport, (mod, cls_name) in _MAP.items():
 
 logger.info(f"[registry] activos: {list(ADAPTER_REGISTRY.keys())}")
 
+# -------------------------------------------------------------------
+# Reglas editoriales ARGENTINA FIRST
+# -------------------------------------------------------------------
+
+ARGENTINA_SELECTION_PATTERNS = [
+    r"\bargentina\b",
+    r"\bselecci[oó]n argentina\b",
+    r"\balbiceleste\b",
+    r"\bsub[- ]?17\b",
+    r"\bsub[- ]?20\b",
+    r"\bsub[- ]?23\b",
+    r"\bjuvenil(?:es)?\b",
+]
+
+ARGENTINE_CLUBS = {
+    "argentinos juniors",
+    "arsenal de sarandi",
+    "arsenal sarandi",
+    "atletico tucuman",
+    "aldosivi",
+    "banfield",
+    "barracas central",
+    "belgrano",
+    "boca juniors",
+    "central cordoba",
+    "central cordoba sde",
+    "colon",
+    "colon de santa fe",
+    "defensa y justicia",
+    "deportivo riestra",
+    "estudiantes",
+    "estudiantes de la plata",
+    "ferro",
+    "ferro carril oeste",
+    "gimnasia",
+    "gimnasia y esgrima la plata",
+    "godoy cruz",
+    "huracan",
+    "independiente",
+    "independiente rivadavia",
+    "instituto",
+    "lanus",
+    "newells",
+    "newells old boys",
+    "newell's old boys",
+    "platense",
+    "quilmes",
+    "racing",
+    "racing club",
+    "river plate",
+    "rosario central",
+    "san lorenzo",
+    "san martin de san juan",
+    "san martin de tucuman",
+    "sarmiento",
+    "talleres",
+    "talleres de cordoba",
+    "tigre",
+    "union de santa fe",
+    "union santa fe",
+    "velez",
+    "velez sarsfield",
+    "all boys",
+    "almagro",
+    "almirante brown",
+    "agropecuario",
+    "atlanta",
+    "brown de adrogue",
+    "chacarita",
+    "chacarita juniors",
+    "chaco for ever",
+    "defensores de belgrano",
+    "deportivo madryn",
+    "deportivo maipu",
+    "deportivo moron",
+    "estudiantes de rio cuarto",
+    "gimnasia de mendoza",
+    "gimnasia de jujuy",
+    "los andes",
+    "mitre",
+    "nueva chicago",
+    "patronato",
+    "san miguel",
+    "temperley",
+    "tristan suarez",
+}
+
+LOCAL_COMPETITION_PATTERNS = [
+    "liga profesional",
+    "liga profesional argentina",
+    "torneo betano",
+    "primera division",
+    "primera división",
+    "primera nacional",
+    "nacional b",
+    "b nacional",
+    "primera b",
+    "primera b metropolitana",
+    "b metro",
+    "primera c",
+    "primera d",
+    "promocional amateur",
+    "federal a",
+    "federal b",
+    "regional amateur",
+    "torneo federal",
+    "copa argentina",
+    "copa de la liga",
+    "supercopa argentina",
+    "supercopa internacional",
+    "trofeo de campeones",
+    "reserva",
+    "torneo de reserva",
+    "primera femenina",
+    "primera division femenina",
+    "primera división femenina",
+    "futbol femenino",
+    "fútbol femenino",
+    "juveniles",
+    "juveniles afa",
+]
+
+MOTORSPORT_ARG_PATTERNS = [
+    "colapinto",
+    "franco colapinto",
+    "argentina",
+    "argentino",
+    "turismo carretera",
+    "tc ",
+    "top race",
+    "turismo nacional",
+    "tn clase",
+    "superbike argentino",
+]
 
 STATUS_ALIASES = {
     "live": "live",
@@ -118,122 +263,12 @@ SPORT_ORDER = {
     "olimpicos": 15,
 }
 
-ARGENTINA_SELECTION_ALIASES = {
-    "argentina",
-    "seleccion argentina",
-    "argentina sub 17",
-    "argentina sub 20",
-    "argentina sub 23",
-    "argentina u17",
-    "argentina u20",
-    "argentina u23",
-    "argentina women",
-    "argentina femenino",
-    "argentina femenina",
-    "argentina women national team",
-}
-
-# Alias exactos controlados.
-# Acá evitamos nombres demasiado genéricos como "arsenal", "union", "barracas".
-ARGENTINE_CLUB_ALIASES = {
-    "argentinos juniors",
-    "atletico tucuman",
-    "aldosivi",
-    "arsenal de sarandi",
-    "arsenal sarandi",
-    "banfield",
-    "barracas central",
-    "belgrano",
-    "boca juniors",
-    "central cordoba",
-    "central cordoba sdE",
-    "central cordoba sde",
-    "chacarita juniors",
-    "colon",
-    "colon de santa fe",
-    "defensa y justicia",
-    "deportivo riestra",
-    "estudiantes",
-    "estudiantes de la plata",
-    "ferro",
-    "ferro carril oeste",
-    "gimnasia",
-    "gimnasia y esgrima la plata",
-    "godoy cruz",
-    "huracan",
-    "independiente",
-    "independiente rivadavia",
-    "instituto",
-    "lanus",
-    "newells old boys",
-    "newells",
-    "newells",
-    "newell's old boys",
-    "platense",
-    "quilmes",
-    "racing",
-    "racing club",
-    "river plate",
-    "rosario central",
-    "san lorenzo",
-    "san martin de tucuman",
-    "san martin tucuman",
-    "san martin de san juan",
-    "sarmiento",
-    "talleres",
-    "talleres de cordoba",
-    "tigre",
-    "union de santa fe",
-    "union santa fe",
-    "velez",
-    "velez sarsfield",
-}
-
-LOCAL_COMPETITION_PATTERNS = [
-    "liga profesional",
-    "copa de la liga",
-    "primera nacional",
-    "primera b",
-    "primera c",
-    "federal a",
-    "torneo federal",
-    "copa argentina",
-    "supercopa argentina",
-    "reserva",
-    "liga argentina",
-    "liga nacional",
-    "lnb",
-    "urba",
-    "top 12",
-    "metropolitano",
-    "torneo del interior",
-    "liga de voley argentina",
-    "liga de vóley argentina",
-    "lnv",
-    "liga de futsal afa",
-    "afa futsal",
-]
-
-MOTORSPORT_ARG_PATTERNS = [
-    "colapinto",
-    "franco colapinto",
-    "argentina",
-    "argentino",
-    "turismo carretera",
-    "tc ",
-    "top race",
-    "turismo nacional",
-    "tn clase",
-    "superbike argentino",
-]
-
+# -------------------------------------------------------------------
+# Helpers
+# -------------------------------------------------------------------
 
 def _now_art() -> datetime:
     return datetime.now(ART_TZ)
-
-
-def _safe_str(value: Any) -> str:
-    return "" if value is None else str(value).strip()
 
 
 def _normalize_text(value: Any) -> str:
@@ -256,6 +291,10 @@ def _normalize_text(value: Any) -> str:
     )
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def _safe_str(value: Any) -> str:
+    return "" if value is None else str(value).strip()
 
 
 def _first_non_empty(d: dict[str, Any], keys: list[str], default: Any = None) -> Any:
@@ -288,7 +327,16 @@ def _infer_sport(match: dict[str, Any], fallback_sport: str) -> str:
 def _extract_match_datetime(match: dict[str, Any]) -> str | None:
     return _first_non_empty(
         match,
-        ["start_time", "datetime", "date_time", "kickoff", "starts_at", "scheduled_at", "utc_date", "date"],
+        [
+            "start_time",
+            "datetime",
+            "date_time",
+            "kickoff",
+            "starts_at",
+            "scheduled_at",
+            "utc_date",
+            "date",
+        ],
     )
 
 
@@ -337,65 +385,24 @@ def _normalize_match(raw_match: Any, fallback_sport: str) -> dict[str, Any]:
     return normalized
 
 
-def _canonicalize_team_name(name: str) -> str:
-    text = _normalize_text(name)
-
-    replacements = {
-        "ca ": "",
-        "c a ": "",
-        "fc ": "",
-        "sc ": "",
-        "club atletico ": "",
-        "club atletico": "",
-        "club ": "",
-        "deportivo ": "deportivo ",
-        "atletico ": "atletico ",
-    }
-
-    for old, new in replacements.items():
-        if text.startswith(old):
-            text = (new + text[len(old):]).strip()
-
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
 def _is_selection_name(name: str) -> bool:
-    text = _canonicalize_team_name(name)
-    if text in ARGENTINA_SELECTION_ALIASES:
-        return True
-    return text.startswith("argentina ")
+    text = _normalize_text(name)
+    if not text:
+        return False
+    return any(re.search(pattern, text) for pattern in ARGENTINA_SELECTION_PATTERNS)
 
 
 def _is_argentine_club(name: str) -> bool:
-    text = _canonicalize_team_name(name)
-
+    text = _normalize_text(name)
     if not text:
         return False
 
-    if text in ARGENTINE_CLUB_ALIASES:
+    if text in ARGENTINE_CLUBS:
         return True
 
-    exact_alias_map = {
-        "racing club avellaneda": "racing club",
-        "club atletico river plate": "river plate",
-        "club atletico boca juniors": "boca juniors",
-        "club atletico independiente": "independiente",
-        "club atletico rosario central": "rosario central",
-        "club atletico tigre": "tigre",
-        "club atletico lanus": "lanus",
-        "club atletico huracan": "huracan",
-        "club atletico belgrano": "belgrano",
-        "club atletico banfield": "banfield",
-        "club atletico union": "union de santa fe",
-        "club atletico talleres": "talleres",
-        "club atletico san lorenzo": "san lorenzo",
-        "club atletico velez sarsfield": "velez sarsfield",
-    }
-
-    mapped = exact_alias_map.get(text)
-    if mapped and mapped in ARGENTINE_CLUB_ALIASES:
-        return True
+    for club in ARGENTINE_CLUBS:
+        if club and club in text:
+            return True
 
     return False
 
@@ -547,10 +554,14 @@ def _build_sections(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     return ordered
 
+# -------------------------------------------------------------------
+# Ejecución de un deporte
+# -------------------------------------------------------------------
 
 async def _run_adapter(scraper_cls: type[BaseScraper], sport: str, target_date: str) -> list[Any]:
     scraper = scraper_cls()
 
+    # Intento 1: scrape(date)
     try:
         return await scraper.scrape(target_date)
     except TypeError:
@@ -558,6 +569,7 @@ async def _run_adapter(scraper_cls: type[BaseScraper], sport: str, target_date: 
     except Exception:
         raise
 
+    # Intento 2: scrape() sin date
     return await scraper.scrape()
 
 
@@ -574,7 +586,14 @@ async def run_sport(sport: str, target_date: str) -> list[dict[str, Any]]:
         return []
 
     try:
-        raw_matches = await _run_adapter(scraper_cls, sport, target_date)
+        raw_matches = await asyncio.wait_for(
+            _run_adapter(scraper_cls, sport, target_date),
+            timeout=8,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"[{sport}] TIMEOUT -> se saltea")
+        _SPORT_CACHE[cache_key] = []
+        return []
     except Exception as e:
         logger.exception(f"[{sport}] ERROR al scrape(): {e}")
         _SPORT_CACHE[cache_key] = []
@@ -593,9 +612,13 @@ async def run_sport(sport: str, target_date: str) -> list[dict[str, Any]]:
 
     normalized_matches.sort(key=_sort_key)
     _SPORT_CACHE[cache_key] = deepcopy(normalized_matches)
+
     logger.info(f"[{sport}] relevantes={len(normalized_matches)} date={target_date}")
     return deepcopy(normalized_matches)
 
+# -------------------------------------------------------------------
+# Resumen diario unificado
+# -------------------------------------------------------------------
 
 async def get_today_summary(target_date: str) -> dict[str, Any]:
     cached = _SUMMARY_CACHE.get(target_date)
