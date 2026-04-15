@@ -56,39 +56,25 @@ export default function HoyPage() {
         setLoading(true)
         setError(null)
 
-        // Primero intenta por proxy interno de Vercel
-        const urls = [
-          '/api/proxy/api/hoy',
-          'https://tablon-albiceleste-api-production-7173.up.railway.app/api/hoy',
-        ]
+        const res = await fetch('/api/proxy/api/hoy', {
+          cache: 'no-store',
+        })
 
-        let lastError: string | null = null
+        const text = await res.text()
+
         let json: any = null
+        try {
+          json = JSON.parse(text)
+        } catch {
+          throw new Error(`Respuesta no JSON: ${text.slice(0, 120)}`)
+        }
 
-        for (const url of urls) {
-          try {
-            const res = await fetch(url, {
-              cache: 'no-store',
-            })
-
-            if (!res.ok) {
-              throw new Error(`HTTP ${res.status}`)
-            }
-
-            json = await res.json()
-
-            if (json?.ok && json?.data) {
-              break
-            } else {
-              throw new Error('Respuesta inválida del backend')
-            }
-          } catch (e: any) {
-            lastError = e?.message || 'Error desconocido'
-          }
+        if (!res.ok) {
+          throw new Error(json?.error || `HTTP ${res.status}`)
         }
 
         if (!json?.ok || !json?.data) {
-          throw new Error(lastError || 'No se pudo cargar la agenda')
+          throw new Error(json?.error || 'Respuesta inválida del backend')
         }
 
         if (!cancelled) {
@@ -117,7 +103,6 @@ export default function HoyPage() {
   }, [data])
 
   const bySport = data?.by_sport || {}
-
   const liveMatches = (data?.matches || []).filter((m) => m.status === 'live')
   const sections = data?.sections || []
 
@@ -142,11 +127,7 @@ export default function HoyPage() {
         )}
       </div>
 
-      {loading && (
-        <div className="text-[13px] text-[#111827]">
-          Cargando agenda...
-        </div>
-      )}
+      {loading && <div className="text-[13px] text-[#111827]">Cargando agenda...</div>}
 
       {!loading && error && (
         <div className="border border-red-200 bg-red-50 rounded px-3 py-3 text-[13px] text-red-700">
