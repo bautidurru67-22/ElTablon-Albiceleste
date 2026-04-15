@@ -1,15 +1,33 @@
 """
-Fútbol argentino robusto y estricto.
+Fútbol argentino robusto y flexible.
 
 Objetivo:
 - que fútbol nazca bien filtrado desde origen
 - evitar falsos positivos tipo Arsenal / Tigres / Union Omaha
+- cubrir realmente el universo de fútbol argentino relevante
 - priorizar:
     1) Selección argentina
     2) Clubes argentinos reales
     3) Competiciones locales argentinas
     4) Copas CONMEBOL con clubes argentinos
-- mantener múltiples fuentes, pero con filtro editorial fuerte
+- mantener múltiples fuentes, con filtro editorial fuerte pero no excesivamente rígido
+
+Cobertura editorial buscada:
+- Selección mayor masculina y femenina
+- Juveniles / Sub-17 / Sub-20 / Sub-23
+- Liga Profesional
+- Primera Nacional
+- Copa Argentina
+- Reserva
+- Primera División Femenina
+- B Metro
+- Federal A
+- Federal B / Regional / torneos federales equivalentes si aparecen en fuentes
+- Primera C
+- Promocional Amateur si aparece
+- Copa Libertadores
+- Copa Sudamericana
+- Mundial / Eliminatorias / amistosos / copas de selección relevantes
 """
 
 from __future__ import annotations
@@ -24,11 +42,7 @@ from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
 from scraping.sources.promiedos import get_today_html, parse_matches
 from scraping.sources.afa import get_fixture_html, parse_fixture as parse_afa_fixture
-from scraping.sources.api_football import (
-    LEAGUE_IDS as API_FOOTBALL_LEAGUES,
-    get_fixtures_today,
-    parse_fixture as parse_api_football,
-)
+from scraping.sources.api_football import get_fixtures_today, parse_fixture as parse_api_football
 from scraping.normalizers.promiedos_normalizer import normalize_matches as normalize_promiedos
 from scraping.sources.sofascore import get_events_by_date, get_live_events
 from scraping.normalizers import sofascore_normalizer
@@ -39,24 +53,46 @@ logger = logging.getLogger(__name__)
 
 class FootballAdapter(BaseScraper):
     SOURCE_ORDER = ["promiedos", "afa", "api_football", "sofascore", "espn"]
-    DIAG_VERSION = "football-strict-v1-2026-04-15"
+    DIAG_VERSION = "football-flex-v2-2026-04-15"
     LAST_RUN: dict = {}
 
+    # Competiciones locales / argentinas que queremos dejar pasar
     TRUSTED_LOCAL_COMPETITIONS = {
         "liga profesional",
+        "liga profesional argentina",
+        "torneo betano",
+        "primera division",
+        "primera división",
         "primera nacional",
+        "nacional b",
+        "b nacional",
         "primera b",
+        "primera b metropolitana",
+        "b metro",
         "primera c",
         "primera d",
+        "promocional amateur",
         "federal a",
+        "federal b",
         "torneo federal",
+        "regional amateur",
         "copa argentina",
         "copa de la liga",
         "supercopa argentina",
         "supercopa internacional",
+        "trofeo de campeones",
         "reserva",
+        "torneo de reserva",
+        "primera femenina",
+        "primera division femenina",
+        "primera división femenina",
+        "futbol femenino",
+        "fútbol femenino",
+        "juveniles afa",
+        "juveniles",
     }
 
+    # Copas internacionales donde juegan clubes argentinos
     TRUSTED_INTL_COMPETITIONS = {
         "conmebol libertadores",
         "copa libertadores",
@@ -66,33 +102,46 @@ class FootballAdapter(BaseScraper):
         "sudamericana",
         "recopa sudamericana",
         "conmebol recopa",
+        "suruga bank",
     }
 
+    # Selecciones argentinas
     TRUSTED_SELECTION_COMPETITIONS = {
-        "conmebol nations league women",
-        "copa america",
-        "copa américa",
+        "fifa world cup",
+        "world cup",
+        "copa del mundo",
+        "mundial",
+        "eliminatorias",
         "eliminatorias conmebol",
+        "world cup qualification",
         "fifa world cup qualification",
         "amistoso internacional",
         "international friendly",
+        "friendly international",
+        "copa america",
+        "copa américa",
         "sudamericano sub 20",
         "sudamericano sub 17",
+        "sudamericano sub 23",
         "preolimpico",
         "preolímpico",
         "juegos olimpicos",
         "juegos olímpicos",
+        "olympic games",
+        "conmebol nations league women",
+        "nations league women",
+        "fifa womens world cup",
+        "fifa women's world cup",
+        "mundial femenino",
     }
 
+    # Ruido que no queremos priorizar por ahora
     NOISE_COMPETITION_KEYWORDS = {
-        "reserve",
-        "reserves",
-        "u20",
-        "u21",
-        "u23",
-        "youth",
-        "juvenile",
+        "reserve league international",
+        "club friendly",
         "amistoso de clubes",
+        "training match",
+        "exhibition",
     }
 
     ARGENTINA_SELECTION_ALIASES = {
@@ -108,8 +157,11 @@ class FootballAdapter(BaseScraper):
         "argentina u23",
         "seleccion argentina",
         "selección argentina",
+        "argentina olimpica",
+        "argentina olímpica",
     }
 
+    # Alias exactos / controlados
     ARGENTINE_CLUB_ALIASES = {
         "aldosivi": {"aldosivi", "club atletico aldosivi"},
         "argentinos_juniors": {"argentinos juniors", "aa argentinos juniors"},
@@ -119,7 +171,12 @@ class FootballAdapter(BaseScraper):
         "barracas_central": {"barracas central", "club atletico barracas central"},
         "belgrano": {"belgrano", "club atletico belgrano", "belgrano de cordoba"},
         "boca_juniors": {"boca juniors", "club atletico boca juniors"},
-        "central_cordoba": {"central cordoba", "central cordoba sde", "central cordoba sdE", "central cordoba de santiago"},
+        "central_cordoba": {
+            "central cordoba",
+            "central cordoba sde",
+            "central cordoba santiago del estero",
+            "central cordoba de santiago",
+        },
         "colon": {"colon", "colon de santa fe", "club atletico colon"},
         "defensa_y_justicia": {"defensa y justicia", "club defensa y justicia"},
         "deportivo_riestra": {"deportivo riestra", "riestra", "club deportivo riestra"},
@@ -146,6 +203,32 @@ class FootballAdapter(BaseScraper):
         "tigre": {"tigre", "club atletico tigre"},
         "union_sf": {"union de santa fe", "union santa fe", "club atletico union de santa fe"},
         "velez": {"velez", "velez sarsfield", "club atletico velez sarsfield"},
+        # Ascenso / locales clave
+        "all_boys": {"all boys"},
+        "almagro": {"almagro"},
+        "almirante_brown": {"almirante brown"},
+        "agropecuario": {"agropecuario"},
+        "atlanta": {"atlanta"},
+        "brown_adrogue": {"brown de adrogue"},
+        "chacarita": {"chacarita", "chacarita juniors"},
+        "chaco_for_ever": {"chaco for ever"},
+        "colon_sf": {"colon de santa fe"},
+        "defensores_belgrano": {"defensores de belgrano"},
+        "deportivo_madryn": {"deportivo madryn"},
+        "deportivo_maipu": {"deportivo maipu", "deportivo maipú"},
+        "deportivo_moron": {"deportivo moron", "deportivo morón"},
+        "estudiantes_rc": {"estudiantes de rio cuarto", "estudiantes de río cuarto"},
+        "gimnasia_mendoza": {"gimnasia de mendoza", "gimnasia y esgrima de mendoza"},
+        "gimnasia_jujuy": {"gimnasia de jujuy"},
+        "los_andes": {"los andes"},
+        "mitre": {"mitre", "mitre de santiago del estero"},
+        "nueva_chicago": {"nueva chicago"},
+        "patronato": {"patronato"},
+        "quilmes_ac": {"quilmes atletico club", "quilmes"},
+        "san_miguel": {"san miguel"},
+        "temperley": {"temperley"},
+        "tristan_suarez": {"tristan suarez", "tristán suárez"},
+        "union_mar_del_plata": {"union de mar del plata"},
     }
 
     def _norm(self, value: str | None) -> str:
@@ -180,6 +263,12 @@ class FootballAdapter(BaseScraper):
             if n in aliases:
                 return canonical
 
+        # fallback flexible controlado
+        for canonical, aliases in self.ARGENTINE_CLUB_ALIASES.items():
+            for alias in aliases:
+                if alias and alias in n:
+                    return canonical
+
         return None
 
     def _classify_match(
@@ -194,6 +283,7 @@ class FootballAdapter(BaseScraper):
         - ("club_arg", "<club>")
         - ("none", None)
         """
+
         home_norm = self._norm(home)
         away_norm = self._norm(away)
         comp_norm = self._norm(competition)
@@ -206,28 +296,27 @@ class FootballAdapter(BaseScraper):
 
         # 1) Selección argentina
         if self._is_argentina_selection(home) or self._is_argentina_selection(away):
-            if self._is_trusted_selection_competition(comp_norm) or "argentina" in home_norm or "argentina" in away_norm:
-                return "seleccion", "Argentina"
+            return "seleccion", "Argentina"
 
-        # 2) Ligas locales argentinas
-        if self._is_trusted_local_competition(comp_norm):
-            home_arg = self._resolve_argentine_club(home)
-            away_arg = self._resolve_argentine_club(away)
+        # 2) Clubes argentinos
+        home_arg = self._resolve_argentine_club(home)
+        away_arg = self._resolve_argentine_club(away)
 
-            # En torneos locales exigimos al menos un club argentino exacto.
-            if home_arg or away_arg:
+        if home_arg or away_arg:
+            # Ligas locales
+            if self._is_trusted_local_competition(comp_norm):
                 return "club_arg", home if home_arg else away
 
-            return "none", None
-
-        # 3) Copas internacionales solo con clubes argentinos exactos
-        if self._is_trusted_international_competition(comp_norm):
-            home_arg = self._resolve_argentine_club(home)
-            away_arg = self._resolve_argentine_club(away)
-            if home_arg or away_arg:
+            # Copas internacionales
+            if self._is_trusted_international_competition(comp_norm):
                 return "club_arg", home if home_arg else away
 
-            return "none", None
+            # Si la fuente vino rara pero detectamos club argentino real, igual entra
+            return "club_arg", home if home_arg else away
+
+        # 3) Fallback de selección
+        if "argentina" in home_norm or "argentina" in away_norm:
+            return "seleccion", "Argentina"
 
         return "none", None
 
@@ -279,11 +368,8 @@ class FootballAdapter(BaseScraper):
         if rel == "club_arg":
             if self._contains_noise(comp):
                 return False
-            if self._is_trusted_local_competition(comp):
-                return True
-            if self._is_trusted_international_competition(comp):
-                return True
-            return False
+            # ahora dejamos pasar más, porque el filtro principal ya está en _classify_match
+            return True
 
         return False
 
@@ -345,7 +431,7 @@ class FootballAdapter(BaseScraper):
             record("afa", error=str(e))
             logger.warning(f"[football/afa] {e}")
 
-        # 3) API-Football: solo ligas confiables ya definidas en la fuente
+        # 3) API-Football
         try:
             raw = await get_fixtures_today()
             before = len(matches)
