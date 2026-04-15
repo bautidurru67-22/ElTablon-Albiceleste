@@ -6,12 +6,8 @@ Objetivos:
 - Cache por deporte y por fecha
 - Timeout por deporte para evitar 504
 - Resumen diario unificado para /api/hoy, /api/live, /api/resultados, /api/calendario
-- Secciones editoriales:
-    1) selecciones
-    2) ligas_locales
-    3) exterior
-    4) motorsport
-- Respetar categorías válidas ya definidas por los adapters
+- Respetar categorías ya definidas por los adapters
+- Usar fallback mínimo solo cuando haga falta
 """
 
 from __future__ import annotations
@@ -36,6 +32,12 @@ LOAD_ERRORS: dict[str, str] = {}
 _SUMMARY_CACHE: dict[str, dict[str, Any]] = {}
 _SPORT_CACHE: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
+VALID_CATEGORIES = {"selecciones", "ligas_locales", "exterior", "motorsport"}
+
+
+# -------------------------------------------------------------------
+# Carga segura de adapters
+# -------------------------------------------------------------------
 
 def _load(module: str, cls: str):
     try:
@@ -76,6 +78,10 @@ for sport, (mod, cls_name) in _MAP.items():
 logger.info(f"[registry] activos: {list(ADAPTER_REGISTRY.keys())}")
 
 
+# -------------------------------------------------------------------
+# Reglas editoriales mínimas de fallback
+# -------------------------------------------------------------------
+
 ARGENTINA_SELECTION_PATTERNS = [
     r"\bargentina\b",
     r"\bselecci[oó]n argentina\b",
@@ -91,112 +97,6 @@ ARGENTINA_SELECTION_PATTERNS = [
     r"\bfemenino\b",
     r"\bwomen\b",
 ]
-
-ARGENTINE_CLUBS = {
-    "river plate",
-    "club atletico river plate",
-    "boca juniors",
-    "club atletico boca juniors",
-    "racing",
-    "racing club",
-    "racing club avellaneda",
-    "independiente",
-    "club atletico independiente",
-    "independiente rivadavia",
-    "san lorenzo",
-    "san lorenzo de almagro",
-    "club atletico san lorenzo",
-    "estudiantes",
-    "estudiantes de la plata",
-    "club estudiantes de la plata",
-    "gimnasia",
-    "gimnasia y esgrima la plata",
-    "lanus",
-    "club atletico lanus",
-    "banfield",
-    "club atletico banfield",
-    "velez",
-    "velez sarsfield",
-    "club atletico velez sarsfield",
-    "argentinos juniors",
-    "aa argentinos juniors",
-    "talleres",
-    "talleres de cordoba",
-    "ca talleres",
-    "belgrano",
-    "club atletico belgrano",
-    "belgrano de cordoba",
-    "newells",
-    "newells old boys",
-    "newell's old boys",
-    "rosario central",
-    "club atletico rosario central",
-    "defensa y justicia",
-    "club defensa y justicia",
-    "huracan",
-    "club atletico huracan",
-    "platense",
-    "club atletico platense",
-    "sarmiento",
-    "sarmiento de junin",
-    "tigre",
-    "club atletico tigre",
-    "barracas central",
-    "club atletico barracas central",
-    "instituto",
-    "instituto acc",
-    "instituto de cordoba",
-    "union de santa fe",
-    "union santa fe",
-    "club atletico union de santa fe",
-    "arsenal de sarandi",
-    "arsenal sarandi",
-    "colon",
-    "colon de santa fe",
-    "club atletico colon",
-    "atletico tucuman",
-    "club atletico tucuman",
-    "aldosivi",
-    "club atletico aldosivi",
-    "central cordoba",
-    "central cordoba sde",
-    "central cordoba santiago del estero",
-    "deportivo riestra",
-    "riestra",
-    "godoy cruz",
-    "godoy cruz antonio tomba",
-    "ferro",
-    "ferro carril oeste",
-    "quilmes",
-    "quilmes atletico club",
-    "san martin de tucuman",
-    "san martin tucuman",
-    "san martin de san juan",
-    "all boys",
-    "almagro",
-    "almirante brown",
-    "agropecuario",
-    "atlanta",
-    "brown de adrogue",
-    "chacarita",
-    "chacarita juniors",
-    "chaco for ever",
-    "defensores de belgrano",
-    "deportivo madryn",
-    "deportivo maipu",
-    "deportivo moron",
-    "estudiantes de rio cuarto",
-    "gimnasia de mendoza",
-    "gimnasia y esgrima de mendoza",
-    "gimnasia de jujuy",
-    "los andes",
-    "mitre",
-    "nueva chicago",
-    "patronato",
-    "san miguel",
-    "temperley",
-    "tristan suarez",
-}
 
 LOCAL_COMPETITION_PATTERNS = [
     "liga profesional",
@@ -304,8 +204,10 @@ SPORT_ORDER = {
     "olimpicos": 15,
 }
 
-VALID_CATEGORIES = {"selecciones", "ligas_locales", "exterior", "motorsport"}
 
+# -------------------------------------------------------------------
+# Helpers
+# -------------------------------------------------------------------
 
 def _now_art() -> datetime:
     return datetime.now(ART_TZ)
@@ -423,10 +325,6 @@ def _is_selection_name(name: str) -> bool:
     return any(re.search(pattern, text) for pattern in ARGENTINA_SELECTION_PATTERNS)
 
 
-def _is_exact_argentine_club(name: str) -> bool:
-    return _normalize_text(name) in ARGENTINE_CLUBS
-
-
 def _is_local_competition(name: str) -> bool:
     text = _normalize_text(name)
     return any(pattern in text for pattern in LOCAL_COMPETITION_PATTERNS) if text else False
@@ -435,11 +333,6 @@ def _is_local_competition(name: str) -> bool:
 def _is_international_competition(name: str) -> bool:
     text = _normalize_text(name)
     return any(pattern in text for pattern in INTERNATIONAL_COMPETITION_PATTERNS) if text else False
-
-
-def _is_generic_competition(name: str) -> bool:
-    text = _normalize_text(name)
-    return text in {"futbol", "football", "soccer", ""}
 
 
 def _is_motorsport_argentina_related(match: dict[str, Any]) -> bool:
@@ -457,37 +350,29 @@ def _is_motorsport_argentina_related(match: dict[str, Any]) -> bool:
 
 
 def clasificar_partido(match: dict[str, Any]) -> str | None:
+    # 1) Si el adapter ya lo clasificó bien, respetarlo
     existing_category = _normalize_text(match.get("category"))
     if existing_category in VALID_CATEGORIES:
         return existing_category
 
+    sport = _normalize_text(match.get("sport"))
+    competition = _safe_str(match.get("competition"))
     home = _safe_str(match.get("home_team"))
     away = _safe_str(match.get("away_team"))
-    comp = _safe_str(match.get("competition"))
-    sport = _normalize_text(match.get("sport"))
 
+    # 2) Motorsport fallback
     if sport in {"motorsport", "motogp", "dakar"}:
         return "motorsport" if _is_motorsport_argentina_related(match) else None
 
-    if sport not in {"futbol", "football", "soccer"}:
-        return None
-
-    if _is_selection_name(home) or _is_selection_name(away):
-        return "selecciones"
-
-    home_arg = _is_exact_argentine_club(home)
-    away_arg = _is_exact_argentine_club(away)
-
-    if _is_local_competition(comp):
-        return "ligas_locales"
-
-    if _is_international_competition(comp) and (home_arg or away_arg):
-        return "exterior"
-
-    if _is_generic_competition(comp):
-        if home_arg and away_arg:
+    # 3) Solo fallback mínimo para fútbol
+    if sport in {"futbol", "football", "soccer"}:
+        if _is_selection_name(home) or _is_selection_name(away):
+            return "selecciones"
+        if _is_local_competition(competition):
             return "ligas_locales"
-        return None
+        if _is_international_competition(competition):
+            # Sin categoría previa del adapter, no nos jugamos a inventar exterior
+            return None
 
     return None
 
