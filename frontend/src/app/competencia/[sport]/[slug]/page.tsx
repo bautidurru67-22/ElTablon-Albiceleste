@@ -147,11 +147,22 @@ export default async function Page({ params }: Props) {
   async function fetchGrouped() {
     try {
       const res = await fetch(
-        `${API_BASE}/api/matches/fixtures/${sport}?competition_slug=${slug}&grouped=true`,
+        `${API_BASE}/api/competitions/${sport}/${slug}/fixture`,
         { cache: 'no-store' }
       )
       if (!res.ok) return { live: [], upcoming: [], finished: [] }
-      return await res.json()
+      const payload = await res.json()
+
+      if (payload && typeof payload === 'object' && Array.isArray((payload as { matches?: unknown[] }).matches)) {
+        const matches = ((payload as { matches: Fixture[] }).matches || [])
+        return {
+          live: matches.filter((m) => m.status === 'live'),
+          upcoming: matches.filter((m) => m.status === 'upcoming'),
+          finished: matches.filter((m) => m.status === 'finished'),
+        }
+      }
+
+      return payload
     } catch {
       return { live: [], upcoming: [], finished: [] }
     }
@@ -192,6 +203,7 @@ export default async function Page({ params }: Props) {
   const live = grouped.live.map(toCompetitionFixture)
   const upcoming = grouped.upcoming.map(toCompetitionFixture)
   const finished = grouped.finished.map(toCompetitionFixture)
+  const todayMatches = [...live, ...finished]
   const totalFixtures = live.length + upcoming.length + finished.length
 
   const standingsGroups = groupStandingsByGroup(table.rows)
@@ -220,8 +232,8 @@ export default async function Page({ params }: Props) {
         </div>
       </div>
 
-      <div className={styles.layout}>
-        <div className={styles.main}>
+      <div className={styles.competitionLayout}>
+        <div className={styles.competitionCol}>
           <section className={styles.section}>
             <SectionTitle>Tabla de posiciones</SectionTitle>
             {table.rows.length === 0 ? (
@@ -266,23 +278,91 @@ export default async function Page({ params }: Props) {
             )}
           </section>
 
+          <section className={styles.section}>
+            <SectionTitle>Otras tablas relevantes</SectionTitle>
+            <div className={styles.noMatches}>
+              <p>Otras tablas y estadísticas estarán disponibles próximamente.</p>
+            </div>
+          </section>
+        </div>
+
+        <div className={styles.competitionCol}>
+          <section className={styles.section}>
+            <SectionTitle>Partidos del día</SectionTitle>
+            {todayMatches.length === 0 ? (
+              <div className={styles.noMatches}>
+                <p>Sin partidos en vivo o finalizados para esta competencia por ahora.</p>
+              </div>
+            ) : (
+              <div className={styles.matchTable}>
+                <div className={styles.matchTableHeader}>
+                  <span>Hora</span>
+                  <span>Competencia</span>
+                  <span className={styles.colTeams}>Partido</span>
+                  <span className={styles.colBcast}>Dónde ver</span>
+                </div>
+                {todayMatches.map((m) => (
+                  <div
+                    key={`today-${m.id}`}
+                    className={`${styles.matchTableRow} ${
+                      m.status === 'live' ? styles.rowLive : m.status === 'finished' ? styles.rowFinished : ''
+                    }`}
+                  >
+                    <span className={styles.colTime}>
+                      {m.status === 'live' ? (
+                        <span className={styles.liveMin}>
+                          <span className={styles.dot} />
+                          {m.minute ?? 'EN VIVO'}
+                        </span>
+                      ) : (
+                        <span className={styles.finalTag}>Final</span>
+                      )}
+                    </span>
+                    <span className={styles.colComp}>{m.competition}</span>
+                    <span className={styles.colTeams}>
+                      <span>{m.home_team}</span>
+                      {m.home_score != null ? (
+                        <span className={styles.scoreInline}>
+                          {m.home_score}-{m.away_score}
+                        </span>
+                      ) : (
+                        <span className={styles.vsInline}>vs</span>
+                      )}
+                      <span>{m.away_team}</span>
+                    </span>
+                    <span className={styles.colBcast}>{m.broadcast ?? '–'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
           {totalFixtures === 0 ? (
             <section className={styles.section}>
-              <SectionTitle>Fixtures</SectionTitle>
+              <SectionTitle>Fixture completo</SectionTitle>
+              <div className={styles.fixtureToolbar}>
+                <span className={styles.fixtureToolbarLabel}>Fecha</span>
+                <span className={styles.fixtureToolbarValue}>Hoy · Selector disponible próximamente</span>
+              </div>
               <div className={styles.noMatches}>
                 <p>Sin fixtures disponibles para esta competencia por ahora.</p>
               </div>
             </section>
           ) : (
-            <>
+            <section className={styles.section}>
+              <SectionTitle>Fixture completo</SectionTitle>
+              <div className={styles.fixtureToolbar}>
+                <span className={styles.fixtureToolbarLabel}>Fecha</span>
+                <span className={styles.fixtureToolbarValue}>Hoy · Selector disponible próximamente</span>
+              </div>
               <FixturesBlock title="En Vivo" fixtures={live} />
               <FixturesBlock title="Próximos" fixtures={upcoming} />
               <FixturesBlock title="Finalizados" fixtures={finished} />
-            </>
+            </section>
           )}
         </div>
 
-        <aside className={styles.sidebar}>
+        <aside className={styles.competitionSidebar}>
           <div className={styles.sideCard}>
             <SectionTitle>Resumen</SectionTitle>
             <div className={styles.statRow}>
