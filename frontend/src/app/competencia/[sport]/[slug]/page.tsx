@@ -1,4 +1,3 @@
-import { api } from '@/lib/api'
 import { Fixture, GroupedFixtures } from '@/types/fixture'
 import { CompetitionTableResponse, StandingsRow } from '@/types/standings'
 import SectionTitle from '@/components/SectionTitle'
@@ -89,13 +88,103 @@ function groupStandingsByGroup(rows: StandingsRow[]) {
   }))
 }
 
+function FixturesBlock({ title, fixtures }: { title: string; fixtures: CompetitionFixture[] }) {
+  if (fixtures.length === 0) return null
+
+  return (
+    <section className={styles.section}>
+      <SectionTitle count={fixtures.length}>{title}</SectionTitle>
+      <div className={styles.matchTable}>
+        <div className={styles.matchTableHeader}>
+          <span>Hora</span>
+          <span>Competencia</span>
+          <span className={styles.colTeams}>Partido</span>
+          <span className={styles.colBcast}>Dónde ver</span>
+        </div>
+        {fixtures.map((m) => (
+          <div
+            key={m.id}
+            className={`${styles.matchTableRow} ${
+              m.status === 'live' ? styles.rowLive : m.status === 'finished' ? styles.rowFinished : ''
+            }`}
+          >
+            <span className={styles.colTime}>
+              {m.status === 'live' ? (
+                <span className={styles.liveMin}>
+                  <span className={styles.dot} />
+                  {m.minute ?? 'EN VIVO'}
+                </span>
+              ) : m.status === 'finished' ? (
+                <span className={styles.finalTag}>Final</span>
+              ) : (
+                <span className={styles.timeStr}>{m.start_time ?? '–'}</span>
+              )}
+            </span>
+            <span className={styles.colComp}>{m.competition}</span>
+            <span className={styles.colTeams}>
+              <span>{m.home_team}</span>
+              {m.home_score != null ? (
+                <span className={styles.scoreInline}>
+                  {m.home_score}-{m.away_score}
+                </span>
+              ) : (
+                <span className={styles.vsInline}>vs</span>
+              )}
+              <span>{m.away_team}</span>
+            </span>
+            <span className={styles.colBcast}>{m.broadcast ?? '–'}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export default async function Page({ params }: Props) {
   const { sport, slug } = params
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
-  const [groupedRaw, tableRaw] = await Promise.all([
-    api.fixtures.groupedBySport(sport, { competition_slug: slug }),
-    api.competitions.table(sport, slug),
-  ])
+  async function fetchGrouped() {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/matches/fixtures/${sport}?competition_slug=${slug}&grouped=true`,
+        { cache: 'no-store' }
+      )
+      if (!res.ok) return { live: [], upcoming: [], finished: [] }
+      return await res.json()
+    } catch {
+      return { live: [], upcoming: [], finished: [] }
+    }
+  }
+
+  async function fetchTable() {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/competitions/${sport}/${slug}/table`,
+        { cache: 'no-store' }
+      )
+      if (!res.ok) {
+        return {
+          sport,
+          slug,
+          competition: slug.replace(/-/g, ' '),
+          updated_at: new Date().toISOString(),
+          rows: [],
+        }
+      }
+      return await res.json()
+    } catch {
+      return {
+        sport,
+        slug,
+        competition: slug.replace(/-/g, ' '),
+        updated_at: new Date().toISOString(),
+        rows: [],
+      }
+    }
+  }
+
+  const [groupedRaw, tableRaw] = await Promise.all([fetchGrouped(), fetchTable()])
 
   const grouped = normalizeGroupedFixtures(groupedRaw)
   const table = normalizeCompetitionTable(tableRaw, sport, slug)
@@ -103,31 +192,118 @@ export default async function Page({ params }: Props) {
   const live = grouped.live.map(toCompetitionFixture)
   const upcoming = grouped.upcoming.map(toCompetitionFixture)
   const finished = grouped.finished.map(toCompetitionFixture)
+  const totalFixtures = live.length + upcoming.length + finished.length
 
   const standingsGroups = groupStandingsByGroup(table.rows)
+  const today = new Date().toLocaleDateString('es-AR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
 
   return (
     <div className={styles.page}>
-      <h1>{table.competition}</h1>
+      <div className={styles.sportHeader}>
+        <div className={styles.sportHeaderLeft}>
+          <div className={styles.sportIcon}>
+            <SportBadge sport={sport} />
+          </div>
+          <div>
+            <h1 className={styles.sportTitle}>{table.competition}</h1>
+            <p className={styles.sportSubtitle}>
+              {sl(sport)} · {slug}
+            </p>
+          </div>
+        </div>
+        <div className={styles.sportHeaderRight}>
+          <span className={styles.dateLabel}>{today}</span>
+        </div>
+      </div>
 
-      <SectionTitle>Tabla de posiciones</SectionTitle>
-      {standingsGroups.map((g) => (
-        <div key={g.group ?? 'general'}>
-          {g.group && <h3>{g.group}</h3>}
-          {g.rows.map((r) => (
-            <div key={r.team_name}>
-              {r.position} - {r.team_name} ({r.points})
+      <div className={styles.layout}>
+        <div className={styles.main}>
+          <section className={styles.section}>
+            <SectionTitle>Tabla de posiciones</SectionTitle>
+            {table.rows.length === 0 ? (
+              <div className={styles.noMatches}>
+                <p>Sin tabla disponible para esta competencia por ahora.</p>
+              </div>
+            ) : (
+              standingsGroups.map((groupBlock) => (
+                <div key={groupBlock.group ?? 'general'} className={styles.matchTable}>
+                  {groupBlock.group ? <h3 className={styles.compName}>{groupBlock.group}</h3> : null}
+                  <div className={styles.matchTableHeader}>
+                    <span>Pos</span>
+                    <span>Equipo</span>
+                    <span>PJ</span>
+                    <span>G</span>
+                    <span>E</span>
+                    <span>P</span>
+                    <span>GF</span>
+                    <span>GC</span>
+                    <span>DG</span>
+                    <span>Pts</span>
+                  </div>
+                  {groupBlock.rows.map((row) => (
+                    <div
+                      key={`${groupBlock.group ?? 'general'}-${row.team_name}`}
+                      className={styles.matchTableRow}
+                    >
+                      <span>{row.position}</span>
+                      <span>{row.team_name}</span>
+                      <span>{row.played}</span>
+                      <span>{row.won}</span>
+                      <span>{row.drawn}</span>
+                      <span>{row.lost}</span>
+                      <span>{row.goals_for}</span>
+                      <span>{row.goals_against}</span>
+                      <span>{row.goal_diff}</span>
+                      <span>{row.points}</span>
+                    </div>
+                  ))}
+                </div>
+              ))
+            )}
+          </section>
+
+          {totalFixtures === 0 ? (
+            <section className={styles.section}>
+              <SectionTitle>Fixtures</SectionTitle>
+              <div className={styles.noMatches}>
+                <p>Sin fixtures disponibles para esta competencia por ahora.</p>
+              </div>
+            </section>
+          ) : (
+            <>
+              <FixturesBlock title="En Vivo" fixtures={live} />
+              <FixturesBlock title="Próximos" fixtures={upcoming} />
+              <FixturesBlock title="Finalizados" fixtures={finished} />
+            </>
+          )}
+        </div>
+
+        <aside className={styles.sidebar}>
+          <div className={styles.sideCard}>
+            <SectionTitle>Resumen</SectionTitle>
+            <div className={styles.statRow}>
+              <span className={styles.statLabel}>En vivo</span>
+              <span className={styles.statVal}>{live.length}</span>
             </div>
-          ))}
-        </div>
-      ))}
-
-      <SectionTitle>Fixtures</SectionTitle>
-      {[...live, ...upcoming, ...finished].map((m) => (
-        <div key={m.id}>
-          {m.home_team} vs {m.away_team}
-        </div>
-      ))}
+            <div className={styles.statRow}>
+              <span className={styles.statLabel}>Próximos</span>
+              <span className={styles.statVal}>{upcoming.length}</span>
+            </div>
+            <div className={styles.statRow}>
+              <span className={styles.statLabel}>Finalizados</span>
+              <span className={styles.statVal}>{finished.length}</span>
+            </div>
+            <div className={styles.statRow}>
+              <span className={styles.statLabel}>Equipos en tabla</span>
+              <span className={styles.statVal}>{table.rows.length}</span>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }
