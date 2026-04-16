@@ -1,191 +1,92 @@
-from __future__ import annotations
-
 import os
-import logging
 import httpx
-import asyncio
 from datetime import datetime
-from typing import Any
 
-logger = logging.getLogger(__name__)
+API_KEY = os.getenv("API_FOOTBALL_KEY")
 
-BASE = "https://v3.football.api-sports.io"
-LEAGUES = {
-    "liga-profesional-argentina": 128,
-    "liga-profesional": 128,
-    "primera-nacional": 131,
-    "copa-argentina": 132,
-    "libertadores": 13,
-    "sudamericana": 14,
+BASE_URL = "https://v3.football.api-sports.io"
+
+HEADERS = {
+    "x-apisports-key": API_KEY
 }
 
+# 🔥 MAPEO REAL
+LEAGUE_MAP = {
+    "liga-profesional-argentina": 128,
+    "primera-nacional": 129,
+}
 
-def _raw_key() -> str:
-    return (os.getenv("API_FOOTBALL_KEY", "") or "").strip()
-
-
-def _is_placeholder_key(key: str) -> bool:
-    if not key:
-        return True
-    bad_prefixes = ("TU_", "YOUR_", "REPLACE_", "CHANGE_")
-    bad_exact = {"TU_API_KEY_REAL", "TU_KEY_REAL_DE_API_FOOTBALL", "API_KEY", "test"}
-    return key in bad_exact or key.startswith(bad_prefixes)
+CURRENT_SEASON = datetime.now().year
 
 
-def _headers(key: str) -> dict:
-    return {
-        # Compatibilidad:
-        # - API-Sports directo: x-apisports-key
-        # - RapidAPI: x-rapidapi-key + x-rapidapi-host
-        "x-apisports-key": key,
-        "x-rapidapi-key": key,
-        "x-rapidapi-host": "v3.football.api-sports.io",
+async def fetch_standings(slug: str):
+    league_id = LEAGUE_MAP.get(slug)
+
+    if not league_id:
+        return {"rows": []}
+
+    url = f"{BASE_URL}/standings"
+
+    params = {
+        "league": league_id,
+        "season": CURRENT_SEASON
     }
 
-
-def _season_now() -> int:
-    return datetime.utcnow().year
-
-
-def _normalize_status(short: str | None) -> str:
-    m = {
-        "NS": "upcoming",
-        "TBD": "upcoming",
-        "PST": "upcoming",
-        "1H": "live",
-        "HT": "live",
-        "2H": "live",
-        "ET": "live",
-        "BT": "live",
-        "P": "live",
-        "FT": "finished",
-        "AET": "finished",
-        "PEN": "finished",
-        "CANC": "finished",
-        "ABD": "finished",
-    }
-    return m.get((short or "").upper(), "upcoming")
-
-
-async def _safe_get_json(client: httpx.AsyncClient, url: str, timeout_s: float = 4.5) -> dict[str, Any]:
-    async def _do():
-        r = await client.get(url)
-        r.raise_for_status()
-        return r.json()
-    return await asyncio.wait_for(_do(), timeout=timeout_s)
-
-
-async def _fetch_standings(client: httpx.AsyncClient, league_id: int, seasons: list[int]) -> tuple[list[dict], str]:
-    label = ""
-    for season in seasons:
-        try:
-            data = await _safe_get_json(client, f"{BASE}/standings?league={league_id}&season={season}")
-            league = (((data.get("response") or [{}])[0].get("league") or {}))
-            standings_groups = league.get("standings") or []
-            if not standings_groups:
-                continue
-            raw_rows: list[dict] = []
-            for group in standings_groups:
-                if isinstance(group, list):
-                    raw_rows.extend(group)
-                elif isinstance(group, dict):
-                    raw_rows.append(group)
-
-            standings = [
-                {
-                    "position": row.get("rank"),
-                    "team": (row.get("team") or {}).get("name"),
-                    "points": row.get("points"),
-                    "played": ((row.get("all") or {}).get("played")),
-                    "won": ((row.get("all") or {}).get("win")),
-                    "drawn": ((row.get("all") or {}).get("draw")),
-                    "lost": ((row.get("all") or {}).get("lose")),
-                    "goals_for": (((row.get("all") or {}).get("goals") or {}).get("for")),
-                    "goals_against": (((row.get("all") or {}).get("goals") or {}).get("against")),
-                    "goal_diff": row.get("goalsDiff"),
-                    "form": row.get("form"),
-                    "group_name": row.get("group"),
-                }
-                for row in raw_rows
-                if (row.get("team") or {}).get("name")
-            ]
-            label = league.get("name") or label
-            if standings:
-                return standings, label
-        except Exception as e:
-            logger.warning(f"[football_overview] standings season={season} error: {e}")
-    return [], label
-
-
-async def _fetch_fixtures(client: httpx.AsyncClient, league_id: int, seasons: list[int]) -> list[dict]:
-    for season in seasons:
-        for scope in ("next=20", "last=20"):
-            try:
-                data = await _safe_get_json(client, f"{BASE}/fixtures?league={league_id}&season={season}&{scope}")
-                rows = data.get("response") or []
-                fixtures = [
-                    {
-                        "date": ((item.get("fixture") or {}).get("date")),
-                        "status": _normalize_status((((item.get("fixture") or {}).get("status") or {}).get("short"))),
-                        "home": (((item.get("teams") or {}).get("home") or {}).get("name")),
-                        "away": (((item.get("teams") or {}).get("away") or {}).get("name")),
-                        "home_score": ((item.get("goals") or {}).get("home")),
-                        "away_score": ((item.get("goals") or {}).get("away")),
-                        "round": ((item.get("league") or {}).get("round")),
-                    }
-                    for item in rows
-                    if (((item.get("teams") or {}).get("home") or {}).get("name")
-                        and ((item.get("teams") or {}).get("away") or {}).get("name"))
-                ]
-                if fixtures:
-                    return fixtures
-            except Exception as e:
-                logger.warning(f"[football_overview] fixtures season={season} scope={scope} error: {e}")
-    return []
-
-
-async def get_football_overview(competition: str = "liga-profesional-argentina") -> dict:
-    league_id = LEAGUES.get(competition, LEAGUES["liga-profesional-argentina"])
-    key = _raw_key()
-
-    if _is_placeholder_key(key):
-        return {
-            "competition": competition,
-            "competition_label": competition.replace("-", " ").title(),
-            "standings": [],
-            "fixtures": [],
-            "source": "api_football",
-            "error": "API_FOOTBALL_KEY no configurado o placeholder",
-        }
-
-    seasons = [_season_now(), _season_now() - 1]
-    standings: list[dict] = []
-    fixtures: list[dict] = []
-    label = competition.replace("-", " ").title()
-    error = None
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, headers=HEADERS, params=params)
+        data = res.json()
 
     try:
-        async with httpx.AsyncClient(
-            headers=_headers(key),
-            timeout=httpx.Timeout(6.0, connect=3.0),
-            follow_redirects=True,
-        ) as client:
-            standings, fetched_label = await _fetch_standings(client, league_id, seasons)
-            if fetched_label:
-                label = fetched_label
-            fixtures = await _fetch_fixtures(client, league_id, seasons)
-    except Exception as e:
-        logger.exception(f"[football_overview] fatal error: {e}")
-        error = "Fallo consultando API-Football"
+        standings = data["response"][0]["league"]["standings"][0]
+    except:
+        return {"rows": []}
 
-    if not standings and not fixtures and not error:
-        error = "Sin datos para la competencia seleccionada"
+    rows = []
+    for team in standings:
+        rows.append({
+            "position": team["rank"],
+            "team": team["team"]["name"],
+            "points": team["points"],
+            "played": team["all"]["played"],
+            "won": team["all"]["win"],
+            "draw": team["all"]["draw"],
+            "lost": team["all"]["lose"],
+        })
 
     return {
-        "competition": competition,
-        "competition_label": label,
-        "standings": standings,
-        "fixtures": fixtures,
-        "source": "api_football",
-        **({"error": error} if error else {}),
+        "rows": rows
+    }
+
+
+async def fetch_fixtures(slug: str):
+    league_id = LEAGUE_MAP.get(slug)
+
+    if not league_id:
+        return {"matches": []}
+
+    url = f"{BASE_URL}/fixtures"
+
+    params = {
+        "league": league_id,
+        "season": CURRENT_SEASON,
+        "next": 20
+    }
+
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, headers=HEADERS, params=params)
+        data = res.json()
+
+    matches = []
+
+    for m in data.get("response", []):
+        matches.append({
+            "home": m["teams"]["home"]["name"],
+            "away": m["teams"]["away"]["name"],
+            "date": m["fixture"]["date"],
+            "status": m["fixture"]["status"]["short"]
+        })
+
+    return {
+        "matches": matches,
+        "count": len(matches)
     }
