@@ -109,6 +109,23 @@
   align-items: start;
 }
 
+.competitionLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 290px;
+  gap: 14px;
+  align-items: start;
+}
+
+.competitionCol {
+  min-width: 0;
+}
+
+.competitionSidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .main {
   min-width: 0;
 }
@@ -308,6 +325,28 @@
   background: #fff;
 }
 
+.fixtureToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  margin-bottom: 8px;
+}
+
+.fixtureToolbarLabel {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.fixtureToolbarValue {
+  font-size: 12px;
+  color: #334155;
+}
+
 .statRow,
 .compRow {
   display: flex;
@@ -335,6 +374,14 @@
   }
 
   .sidebar {
+    order: -1;
+  }
+
+  .competitionLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .competitionSidebar {
     order: -1;
   }
 }
