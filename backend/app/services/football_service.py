@@ -34,6 +34,10 @@ def _is_placeholder_key(key: str) -> bool:
 
 def _headers(key: str) -> dict:
     return {
+        # Compatibilidad:
+        # - API-Sports directo: x-apisports-key
+        # - RapidAPI: x-rapidapi-key + x-rapidapi-host
+        "x-apisports-key": key,
         "x-rapidapi-key": key,
         "x-rapidapi-host": "v3.football.api-sports.io",
     }
@@ -77,37 +81,37 @@ async def _fetch_standings(client: httpx.AsyncClient, league_id: int, seasons: l
         try:
             data = await _safe_get_json(client, f"{BASE}/standings?league={league_id}&season={season}")
             league = (((data.get("response") or [{}])[0].get("league") or {}))
-            raw_groups = league.get("standings") or []
-            rows_out: list[dict] = []
+            standings_groups = league.get("standings") or []
+            if not standings_groups:
+                continue
+            raw_rows: list[dict] = []
+            for group in standings_groups:
+                if isinstance(group, list):
+                    raw_rows.extend(group)
+                elif isinstance(group, dict):
+                    raw_rows.append(group)
 
-            for group in raw_groups:
-                if not isinstance(group, list):
-                    continue
-                for row in group:
-                    team = row.get("team") or {}
-                    all_stats = row.get("all") or {}
-                    goals = all_stats.get("goals") or {}
-                    rows_out.append(
-                        {
-                            "position": row.get("rank"),
-                            "team": team.get("name"),
-                            "points": row.get("points"),
-                            "played": all_stats.get("played"),
-                            "won": all_stats.get("win"),
-                            "drawn": all_stats.get("draw"),
-                            "lost": all_stats.get("lose"),
-                            "goals_for": goals.get("for"),
-                            "goals_against": goals.get("against"),
-                            "goal_diff": row.get("goalsDiff"),
-                            "form": row.get("form"),
-                            "group_name": row.get("group"),
-                        }
-                    )
-
+            standings = [
+                {
+                    "position": row.get("rank"),
+                    "team": (row.get("team") or {}).get("name"),
+                    "points": row.get("points"),
+                    "played": ((row.get("all") or {}).get("played")),
+                    "won": ((row.get("all") or {}).get("win")),
+                    "drawn": ((row.get("all") or {}).get("draw")),
+                    "lost": ((row.get("all") or {}).get("lose")),
+                    "goals_for": (((row.get("all") or {}).get("goals") or {}).get("for")),
+                    "goals_against": (((row.get("all") or {}).get("goals") or {}).get("against")),
+                    "goal_diff": row.get("goalsDiff"),
+                    "form": row.get("form"),
+                    "group_name": row.get("group"),
+                }
+                for row in raw_rows
+                if (row.get("team") or {}).get("name")
+            ]
             label = league.get("name") or label
-            rows_out = [r for r in rows_out if r.get("team")]
-            if rows_out:
-                return rows_out, label
+            if standings:
+                return standings, label
         except Exception as e:
             logger.warning(f"[football_overview] standings season={season} error: {e}")
     return [], label
@@ -115,27 +119,28 @@ async def _fetch_standings(client: httpx.AsyncClient, league_id: int, seasons: l
 
 async def _fetch_fixtures(client: httpx.AsyncClient, league_id: int, seasons: list[int]) -> list[dict]:
     for season in seasons:
-        try:
-            data = await _safe_get_json(client, f"{BASE}/fixtures?league={league_id}&season={season}&next=20")
-            rows = data.get("response") or []
-            fixtures = [
-                {
-                    "date": ((item.get("fixture") or {}).get("date")),
-                    "status": _normalize_status((((item.get("fixture") or {}).get("status") or {}).get("short"))),
-                    "home": (((item.get("teams") or {}).get("home") or {}).get("name")),
-                    "away": (((item.get("teams") or {}).get("away") or {}).get("name")),
-                    "home_score": ((item.get("goals") or {}).get("home")),
-                    "away_score": ((item.get("goals") or {}).get("away")),
-                    "round": ((item.get("league") or {}).get("round")),
-                }
-                for item in rows
-                if (((item.get("teams") or {}).get("home") or {}).get("name")
-                    and ((item.get("teams") or {}).get("away") or {}).get("name"))
-            ]
-            if fixtures:
-                return fixtures
-        except Exception as e:
-            logger.warning(f"[football_overview] fixtures season={season} error: {e}")
+        for scope in ("next=20", "last=20"):
+            try:
+                data = await _safe_get_json(client, f"{BASE}/fixtures?league={league_id}&season={season}&{scope}")
+                rows = data.get("response") or []
+                fixtures = [
+                    {
+                        "date": ((item.get("fixture") or {}).get("date")),
+                        "status": _normalize_status((((item.get("fixture") or {}).get("status") or {}).get("short"))),
+                        "home": (((item.get("teams") or {}).get("home") or {}).get("name")),
+                        "away": (((item.get("teams") or {}).get("away") or {}).get("name")),
+                        "home_score": ((item.get("goals") or {}).get("home")),
+                        "away_score": ((item.get("goals") or {}).get("away")),
+                        "round": ((item.get("league") or {}).get("round")),
+                    }
+                    for item in rows
+                    if (((item.get("teams") or {}).get("home") or {}).get("name")
+                        and ((item.get("teams") or {}).get("away") or {}).get("name"))
+                ]
+                if fixtures:
+                    return fixtures
+            except Exception as e:
+                logger.warning(f"[football_overview] fixtures season={season} scope={scope} error: {e}")
     return []
 
 
