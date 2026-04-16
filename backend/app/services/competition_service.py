@@ -6,6 +6,7 @@ import unicodedata
 
 from app.models.match import Match
 from app.cache import cache
+from app.services.football_service import get_football_overview
 
 
 def _norm(s: str | None) -> str:
@@ -15,11 +16,13 @@ def _norm(s: str | None) -> str:
     return s
 
 
-# Slugs y keywords por deporte/competencia
 COMPETITION_MAP: dict[str, dict[str, dict[str, object]]] = {
     "futbol": {
         "mundial": {"label": "Mundial", "keywords": ["mundial", "world cup"]},
-        "liga-profesional": {"label": "Liga Profesional", "keywords": ["liga profesional", "lpf", "superliga"]},
+        "liga-profesional-argentina": {
+            "label": "Liga Profesional",
+            "keywords": ["liga profesional", "lpf", "superliga"],
+        },
         "primera-nacional": {"label": "Primera Nacional", "keywords": ["primera nacional"]},
         "copa-argentina": {"label": "Copa Argentina", "keywords": ["copa argentina"]},
         "reserva": {"label": "Reserva", "keywords": ["reserva"]},
@@ -44,6 +47,23 @@ COMPETITION_MAP: dict[str, dict[str, dict[str, object]]] = {
     },
 }
 
+COMPETITION_ALIASES: dict[str, dict[str, str]] = {
+    "futbol": {
+        "liga-profesional": "liga-profesional-argentina",
+    }
+}
+
+FOOTBALL_OVERVIEW_SUPPORTED = {
+    "liga-profesional-argentina",
+    "primera-nacional",
+    "libertadores",
+    "sudamericana",
+}
+
+
+def resolve_competition_slug(sport: str, slug: str) -> str:
+    return COMPETITION_ALIASES.get(sport, {}).get(slug, slug)
+
 
 async def _read_cache(key: str) -> list[Match]:
     data = await cache.get(key)
@@ -56,8 +76,9 @@ async def _read_cache(key: str) -> list[Match]:
 
 
 def _competition_meta(sport: str, slug: str) -> dict[str, object]:
+    resolved_slug = resolve_competition_slug(sport, slug)
     sport_map = COMPETITION_MAP.get(sport, {})
-    return sport_map.get(slug, {"label": slug.replace("-", " ").title(), "keywords": []})
+    return sport_map.get(resolved_slug, {"label": resolved_slug.replace("-", " ").title(), "keywords": []})
 
 
 def _filter_by_slug(matches: list[Match], sport: str, slug: str) -> list[Match]:
@@ -78,14 +99,54 @@ def _sort_matches(matches: list[Match]) -> list[Match]:
     return sorted(matches, key=lambda m: (order.get(m.status, 9), m.start_time or ""))
 
 
+async def _get_football_overview_if_available(slug: str) -> dict | None:
+    resolved_slug = resolve_competition_slug("futbol", slug)
+    if resolved_slug not in FOOTBALL_OVERVIEW_SUPPORTED:
+        return None
+    return await get_football_overview(competition=resolved_slug)
+
+
 async def get_competition_fixture(sport: str, slug: str) -> dict:
+    if sport == "futbol":
+        overview = await _get_football_overview_if_available(slug)
+        if overview and overview.get("fixtures"):
+            fixtures = overview.get("fixtures", [])
+            mapped = [
+                {
+                    "id": f"{resolve_competition_slug(sport, slug)}-{idx}",
+                    "sport": sport,
+                    "competition": overview.get("competition_label") or _competition_meta(sport, slug).get("label"),
+                    "home_team": item.get("home"),
+                    "away_team": item.get("away"),
+                    "home_score": item.get("home_score"),
+                    "away_score": item.get("away_score"),
+                    "status": item.get("status") or "upcoming",
+                    "minute": None,
+                    "datetime": item.get("date"),
+                    "start_time": None,
+                    "argentina_relevance": "none",
+                    "argentina_team": None,
+                    "broadcast": None,
+                }
+                for idx, item in enumerate(fixtures)
+                if item.get("home") and item.get("away")
+            ]
+            return {
+                "sport": sport,
+                "slug": resolve_competition_slug(sport, slug),
+                "competition": overview.get("competition_label") or _competition_meta(sport, slug).get("label"),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "count": len(mapped),
+                "matches": mapped,
+            }
+
     all_today = await _read_cache(f"today:{sport}")
     filtered = _filter_by_slug(all_today, sport, slug)
     filtered = _sort_matches(filtered)
 
     return {
         "sport": sport,
-        "slug": slug,
+        "slug": resolve_competition_slug(sport, slug),
         "competition": _competition_meta(sport, slug).get("label"),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "count": len(filtered),
@@ -94,7 +155,35 @@ async def get_competition_fixture(sport: str, slug: str) -> dict:
 
 
 async def get_competition_table(sport: str, slug: str) -> dict:
-    # Tabla inferida desde resultados cacheados del día (MVP funcional)
+    if sport == "futbol":
+        overview = await _get_football_overview_if_available(slug)
+        if overview and overview.get("standings"):
+            standings = overview.get("standings", [])
+            rows = [
+                {
+                    "position": row.get("position") or idx + 1,
+                    "team_name": row.get("team") or "",
+                    "played": row.get("played") or 0,
+                    "won": row.get("won") or 0,
+                    "drawn": row.get("drawn") or 0,
+                    "lost": row.get("lost") or 0,
+                    "goals_for": row.get("goals_for") or 0,
+                    "goals_against": row.get("goals_against") or 0,
+                    "goal_diff": row.get("goal_diff") or 0,
+                    "points": row.get("points") or 0,
+                    "group_name": row.get("group_name"),
+                }
+                for idx, row in enumerate(standings)
+                if row.get("team")
+            ]
+            return {
+                "sport": sport,
+                "slug": resolve_competition_slug(sport, slug),
+                "competition": overview.get("competition_label") or _competition_meta(sport, slug).get("label"),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "rows": rows,
+            }
+
     all_today = await _read_cache(f"today:{sport}")
     filtered = _filter_by_slug(all_today, sport, slug)
 
@@ -139,24 +228,36 @@ async def get_competition_table(sport: str, slug: str) -> dict:
 
     table.sort(key=lambda r: (r["pts"], r["dg"], r["gf"]), reverse=True)
 
-    for i, r in enumerate(table, start=1):
-        r["pos"] = i
+    rows_response = [
+        {
+            "position": i,
+            "team_name": r["team"],
+            "played": r["pj"],
+            "won": r["pg"],
+            "drawn": r["pe"],
+            "lost": r["pp"],
+            "goals_for": r["gf"],
+            "goals_against": r["gc"],
+            "goal_diff": r["dg"],
+            "points": r["pts"],
+            "group_name": None,
+        }
+        for i, r in enumerate(table, start=1)
+    ]
 
     return {
         "sport": sport,
-        "slug": slug,
+        "slug": resolve_competition_slug(sport, slug),
         "competition": _competition_meta(sport, slug).get("label"),
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "rows": table,
+        "rows": rows_response,
     }
 
 
 async def get_competition_scorers(sport: str, slug: str) -> dict:
-    # Placeholder consistente (hasta conectar feed de goleadores real)
-    # Mantiene contrato API para no romper frontend.
     return {
         "sport": sport,
-        "slug": slug,
+        "slug": resolve_competition_slug(sport, slug),
         "competition": _competition_meta(sport, slug).get("label"),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "rows": [],
