@@ -5,6 +5,7 @@ from app.services.competition_service import (
     get_competition_table,
     get_competition_scorers,
     COMPETITION_MAP,
+    resolve_competition_slug,
 )
 
 router = APIRouter()
@@ -13,8 +14,10 @@ router = APIRouter()
 def _validate(sport: str, slug: str | None = None) -> None:
     if sport not in COMPETITION_MAP:
         raise HTTPException(status_code=404, detail=f"Deporte no soportado: {sport}")
-    if slug is not None and slug not in COMPETITION_MAP[sport]:
-        raise HTTPException(status_code=404, detail=f"Competencia no soportada: {sport}/{slug}")
+    if slug is not None:
+        resolved = resolve_competition_slug(sport, slug)
+        if resolved not in COMPETITION_MAP[sport]:
+            raise HTTPException(status_code=404, detail=f"Competencia no soportada: {sport}/{slug}")
 
 
 @router.get("/{sport}")
