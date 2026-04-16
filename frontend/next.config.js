@@ -1,19 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // En producción, NEXT_PUBLIC_API_URL apunta directo al backend deployado.
-  // El rewrite solo aplica si NEXT_PUBLIC_API_URL no está definido (dev local).
   async rewrites() {
-    // Solo activo en desarrollo local sin variable de entorno
-    if (process.env.NEXT_PUBLIC_API_URL) return []
+    const backendBase =
+      process.env.BACKEND_API_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      'http://localhost:8000'
+
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*',
+        destination: `${backendBase}/api/:path*`,
       },
     ]
   },
 
-  // Headers de seguridad básicos
   async headers() {
     return [
       {
@@ -27,15 +27,12 @@ const nextConfig = {
     ]
   },
 
-  // Hotfix deploy: evitar que lint/types bloqueen el build de producción
   eslint: {
     ignoreDuringBuilds: true,
   },
   typescript: {
     ignoreBuildErrors: true,
   },
-
-  // output: 'standalone',
 }
 
 module.exports = nextConfig
