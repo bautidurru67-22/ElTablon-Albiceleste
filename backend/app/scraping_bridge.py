@@ -25,7 +25,8 @@ def _ensure_scraping_importable() -> bool:
         pass
 
     bridge = Path(__file__).resolve()
-    for candidate in [bridge.parents[2], Path("/app")]:
+    # Prioriza /backend para resolver package "scraping" del backend deployado.
+    for candidate in [bridge.parents[1], bridge.parents[2], Path("/app/backend"), Path("/app")]:
         s = str(candidate)
         if candidate.exists() and s not in sys.path:
             sys.path.insert(0, s)
