@@ -1,13 +1,15 @@
 """
 Fútbol argentino robusto y estricto.
 
-Objetivo:
+Objetivos:
 - evitar falsos positivos tipo:
     - Boca Juniors de Cali
     - Racing Santander
     - Sportivo San Lorenzo
     - Union Omaha
 - detectar solo entidades argentinas reales
+- incorporar mejor cobertura de ligas locales aunque los clubes no estén
+  todos manualmente en el mapa, siempre que la competencia sea argentina confiable
 - priorizar:
     1) Selección argentina
     2) Clubes argentinos reales
@@ -38,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 class FootballAdapter(BaseScraper):
     SOURCE_ORDER = ["promiedos", "afa", "api_football", "sofascore", "espn"]
-    DIAG_VERSION = "football-strict-v4-2026-04-17"
+    DIAG_VERSION = "football-strict-v5-2026-04-17"
     LAST_RUN: dict = {}
 
     TRUSTED_LOCAL_COMPETITIONS = {
@@ -150,159 +152,48 @@ class FootballAdapter(BaseScraper):
         "arg u23",
     }
 
-    # IMPORTANTE:
-    # No usar aliases genéricos peligrosos tipo "union", "arsenal", "racing", "san lorenzo"
-    # salvo que sean expresiones completas/seguras.
+    # OJO:
+    # nada de alias peligrosos tipo "union", "arsenal", "racing", "san lorenzo"
+    # sueltos. Solo expresiones completas y seguras.
     ARGENTINE_CLUB_ALIASES = {
-        "aldosivi": {
-            "aldosivi",
-            "club atletico aldosivi",
-        },
-        "argentinos_juniors": {
-            "argentinos juniors",
-            "aa argentinos juniors",
-        },
-        "arsenal_sarandi": {
-            "arsenal de sarandi",
-            "arsenal de sarandí",
-            "arsenal sarandi",
-        },
-        "atletico_tucuman": {
-            "atletico tucuman",
-            "atlético tucumán",
-            "club atletico tucuman",
-        },
-        "banfield": {
-            "banfield",
-            "club atletico banfield",
-        },
-        "barracas_central": {
-            "barracas central",
-            "club atletico barracas central",
-        },
-        "belgrano": {
-            "belgrano",
-            "club atletico belgrano",
-            "belgrano de cordoba",
-            "belgrano de córdoba",
-        },
-        "boca_juniors": {
-            "boca juniors",
-            "club atletico boca juniors",
-        },
+        "aldosivi": {"aldosivi", "club atletico aldosivi"},
+        "argentinos_juniors": {"argentinos juniors", "aa argentinos juniors"},
+        "arsenal_sarandi": {"arsenal de sarandi", "arsenal de sarandí", "arsenal sarandi"},
+        "atletico_tucuman": {"atletico tucuman", "atlético tucumán", "club atletico tucuman"},
+        "banfield": {"banfield", "club atletico banfield"},
+        "barracas_central": {"barracas central", "club atletico barracas central"},
+        "belgrano": {"belgrano", "club atletico belgrano", "belgrano de cordoba", "belgrano de córdoba"},
+        "boca_juniors": {"boca juniors", "club atletico boca juniors"},
         "central_cordoba": {
             "central cordoba sde",
             "central cordoba santiago del estero",
             "central cordoba de santiago del estero",
             "central córdoba santiago del estero",
         },
-        "colon": {
-            "colon de santa fe",
-            "colón de santa fe",
-            "club atletico colon",
-            "club atlético colón",
-        },
-        "defensa_y_justicia": {
-            "defensa y justicia",
-            "club defensa y justicia",
-        },
-        "deportivo_riestra": {
-            "deportivo riestra",
-            "club deportivo riestra",
-        },
-        "estudiantes_lp": {
-            "estudiantes de la plata",
-            "club estudiantes de la plata",
-        },
-        "ferro": {
-            "ferro carril oeste",
-            "club ferro carril oeste",
-        },
-        "gimnasia_lp": {
-            "gimnasia y esgrima la plata",
-            "gelp",
-        },
-        "godoy_cruz": {
-            "godoy cruz",
-            "godoy cruz antonio tomba",
-        },
-        "huracan": {
-            "huracan",
-            "huracán",
-            "club atletico huracan",
-            "club atlético huracán",
-        },
-        "independiente": {
-            "independiente",
-            "club atletico independiente",
-        },
-        "independiente_rivadavia": {
-            "independiente rivadavia",
-            "cs independiente rivadavia",
-        },
-        "instituto": {
-            "instituto",
-            "instituto de cordoba",
-            "instituto de córdoba",
-            "instituto acc",
-        },
-        "lanus": {
-            "lanus",
-            "lanús",
-            "club atletico lanus",
-            "club atlético lanús",
-        },
-        "newells": {
-            "newell's old boys",
-            "newells old boys",
-        },
-        "platense": {
-            "platense",
-            "club atletico platense",
-        },
-        "quilmes": {
-            "quilmes atletico club",
-            "quilmes atlético club",
-        },
-        "racing": {
-            "racing club",
-            "racing club avellaneda",
-        },
-        "river": {
-            "river plate",
-            "club atletico river plate",
-        },
-        "rosario_central": {
-            "rosario central",
-            "club atletico rosario central",
-        },
-        "san_lorenzo": {
-            "san lorenzo de almagro",
-            "club atletico san lorenzo de almagro",
-        },
-        "san_martin_sj": {
-            "san martin de san juan",
-            "san martín de san juan",
-        },
-        "san_martin_t": {
-            "san martin de tucuman",
-            "san martín de tucumán",
-        },
-        "sarmiento": {
-            "sarmiento junin",
-            "sarmiento de junin",
-            "sarmiento de junín",
-        },
-        "talleres": {
-            "talleres de cordoba",
-            "talleres de córdoba",
-            "ca talleres",
-        },
-        "tigre": {
-            "club atletico tigre",
-            "club atlético tigre",
-            "tigre",
-        },
+        "colon": {"colon de santa fe", "colón de santa fe", "club atletico colon", "club atlético colón"},
+        "defensa_y_justicia": {"defensa y justicia", "club defensa y justicia"},
+        "deportivo_riestra": {"deportivo riestra", "club deportivo riestra"},
+        "estudiantes_lp": {"estudiantes de la plata", "club estudiantes de la plata"},
+        "ferro": {"ferro carril oeste", "club ferro carril oeste"},
+        "gimnasia_lp": {"gimnasia y esgrima la plata", "gelp"},
+        "godoy_cruz": {"godoy cruz", "godoy cruz antonio tomba"},
+        "huracan": {"huracan", "huracán", "club atletico huracan", "club atlético huracán"},
+        "independiente": {"independiente", "club atletico independiente"},
+        "independiente_rivadavia": {"independiente rivadavia", "cs independiente rivadavia"},
+        "instituto": {"instituto", "instituto de cordoba", "instituto de córdoba", "instituto acc"},
+        "lanus": {"lanus", "lanús", "club atletico lanus", "club atlético lanús"},
+        "newells": {"newell's old boys", "newells old boys"},
+        "platense": {"platense", "club atletico platense"},
+        "quilmes": {"quilmes atletico club", "quilmes atlético club"},
+        "racing": {"racing club", "racing club avellaneda"},
+        "river": {"river plate", "club atletico river plate"},
+        "rosario_central": {"rosario central", "club atletico rosario central"},
+        "san_lorenzo": {"san lorenzo de almagro", "club atletico san lorenzo de almagro"},
+        "san_martin_sj": {"san martin de san juan", "san martín de san juan"},
+        "san_martin_t": {"san martin de tucuman", "san martín de tucumán"},
+        "sarmiento": {"sarmiento junin", "sarmiento de junin", "sarmiento de junín"},
+        "talleres": {"talleres de cordoba", "talleres de córdoba", "ca talleres"},
+        "tigre": {"club atletico tigre", "club atlético tigre", "tigre"},
         "union_sf": {
             "union de santa fe",
             "unión de santa fe",
@@ -341,6 +232,46 @@ class FootballAdapter(BaseScraper):
         "camioneros": {"camioneros", "club atletico camioneros"},
         "gimnasia_y_tiro": {"gimnasia y tiro", "gimnasia y tiro de salta"},
         "excursionistas": {"excursionistas"},
+        "sportivo_barracas": {"sportivo barracas"},
+        "sacachispas": {"sacachispas"},
+        "laferrere": {"deportivo laferrere", "laferrere"},
+        "ituzango": {"ituzaingo", "ituzango", "ituzangó"},
+        "argentino_quilmes": {"argentino de quilmes"},
+        "deportivo_merlo": {"deportivo merlo"},
+        "villa_dalmine": {"villa dalmine", "villa dálmine"},
+        "defensores_unidos": {"defensores unidos"},
+        "deportivo_armenio": {"deportivo armenio"},
+    }
+
+    OBVIOUS_FOREIGN_TOKENS = {
+        "de cali",
+        "de palmira",
+        "santander",
+        "uanl",
+        "omaha",
+        "de medellin",
+        "de quito",
+        "de lima",
+        "de asuncion",
+        "de asunción",
+        "ecuador",
+        "colombia",
+        "chile",
+        "mexico",
+        "méxico",
+        "peru",
+        "perú",
+        "paraguay",
+        "uruguay",
+        "venezuela",
+        "bolivia",
+        "brazil",
+        "brasil",
+        "saudi arabia",
+        "arabia",
+        "spain",
+        "españa",
+        "espana",
     }
 
     def _norm(self, value: str | None) -> str:
@@ -389,6 +320,28 @@ class FootballAdapter(BaseScraper):
 
         return None
 
+    def _looks_foreign(self, text: str) -> bool:
+        n = self._norm(text)
+        return any(token in n for token in self.OBVIOUS_FOREIGN_TOKENS)
+
+    def _local_competition_fallback_ok(self, home: str, away: str, competition: str) -> bool:
+        """
+        Si la competencia es local argentina confiable, aceptamos el partido
+        incluso si el club no está explicitado en el mapa, salvo que haya señales
+        claras de que NO es argentino.
+        """
+        home_norm = self._norm(home)
+        away_norm = self._norm(away)
+        comp_norm = self._norm(competition)
+
+        if not self._is_trusted_local_competition(comp_norm):
+            return False
+
+        if self._looks_foreign(home_norm) or self._looks_foreign(away_norm):
+            return False
+
+        return True
+
     def _classify_match(self, home: str, away: str, competition: str) -> tuple[str, str | None]:
         home_norm = self._norm(home)
         away_norm = self._norm(away)
@@ -411,8 +364,13 @@ class FootballAdapter(BaseScraper):
         home_arg = self._resolve_argentine_club(home)
         away_arg = self._resolve_argentine_club(away)
 
+        # Club argentino exacto
         if home_arg or away_arg:
             return "club_arg", home if home_arg else away
+
+        # Fallback por competencia local confiable (B Metro, Primera C, Federal A, Reserva, etc.)
+        if self._local_competition_fallback_ok(home, away, competition):
+            return "club_arg", home
 
         return "none", None
 
@@ -452,6 +410,22 @@ class FootballAdapter(BaseScraper):
             argentina_team=argentina_team,
             broadcast=broadcast,
             raw=raw,
+        )
+
+    def _reclassify_normalized(self, nm: NormalizedMatch, source_override: str | None = None) -> NormalizedMatch | None:
+        return self._build_match(
+            mid=nm.id,
+            source=source_override or getattr(nm, "source", "unknown"),
+            competition=getattr(nm, "competition", "") or "",
+            home=getattr(nm, "home_team", "") or "",
+            away=getattr(nm, "away_team", "") or "",
+            home_score=getattr(nm, "home_score", None),
+            away_score=getattr(nm, "away_score", None),
+            status=getattr(nm, "status", "upcoming"),
+            minute=getattr(nm, "minute", None),
+            start_time_arg=getattr(nm, "start_time_arg", None),
+            broadcast=getattr(nm, "broadcast", None),
+            raw=getattr(nm, "raw", {}) or {},
         )
 
     def _is_editorial_match(self, m: NormalizedMatch) -> bool:
@@ -501,8 +475,9 @@ class FootballAdapter(BaseScraper):
             raw = parse_matches(html)
             before = len(matches)
 
-            for m in normalize_promiedos(raw):
-                add(m)
+            normalized = normalize_promiedos(raw)
+            for m in normalized:
+                add(self._reclassify_normalized(m, "promiedos"))
 
             added = len(matches) - before
             record("promiedos", raw_count=len(raw), added_count=added)
@@ -516,8 +491,9 @@ class FootballAdapter(BaseScraper):
             raw = parse_afa_fixture(html or "")
             before = len(matches)
 
-            for m in normalize_promiedos(raw):
-                add(m)
+            normalized = normalize_promiedos(raw)
+            for m in normalized:
+                add(self._reclassify_normalized(m, "afa"))
 
             added = len(matches) - before
             record("afa", raw_count=len(raw), added_count=added)
@@ -571,8 +547,9 @@ class FootballAdapter(BaseScraper):
                 events = data.get("events", [])
                 raw_total += len(events)
 
-                for m in sofascore_normalizer.normalize_events(events, "futbol"):
-                    add(m)
+                normalized = sofascore_normalizer.normalize_events(events, "futbol")
+                for m in normalized:
+                    add(self._reclassify_normalized(m, "sofascore"))
 
             added = len(matches) - before
             record("sofascore", raw_count=raw_total, added_count=added)
