@@ -1,13 +1,13 @@
-import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from importlib import import_module
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.startup.scraper_runner import start_scraping_loop
+from app.scheduler import build_scheduler
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -16,27 +16,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title="El Tablón Albiceleste API",
-    version="1.0.0",
-)
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://eltablon-albiceleste.vercel.app",
-        "https://el-tablon-albiceleste.vercel.app",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 def _include_router_if_exists(
+    app: FastAPI,
     module_path: str,
     *,
     router_name: str = "router",
@@ -58,30 +40,65 @@ def _include_router_if_exists(
         return False
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("[main] startup iniciado")
+
+    scheduler = None
+    try:
+        scheduler = build_scheduler()
+        scheduler.start()
+        app.state.scheduler = scheduler
+        logger.info("[main] scheduler iniciado")
+    except Exception as e:
+        logger.error(f"[main] no se pudo iniciar scheduler: {e}", exc_info=True)
+        app.state.scheduler = None
+
+    yield
+
+    logger.info("[main] shutdown iniciado")
+    try:
+        scheduler = getattr(app.state, "scheduler", None)
+        if scheduler:
+            scheduler.shutdown(wait=False)
+            logger.info("[main] scheduler detenido")
+    except Exception as e:
+        logger.warning(f"[main] error al detener scheduler: {e}")
+
+
+app = FastAPI(
+    title="El Tablón Albiceleste API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://eltablon-albiceleste.vercel.app",
+        "https://el-tablon-albiceleste.vercel.app",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Rutas
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Ruta principal que ya sabemos que existe
-_include_router_if_exists("app.api.hoy", prefix="/api/hoy", tags=["Hoy"])
+# Ruta principal del backend nuevo
+_include_router_if_exists(app, "backend.api_hoy", tags=["Hoy"])
 
-# Intentos opcionales para no romper si el repo usa otra organización
-_include_router_if_exists("app.api.matches", prefix="/api/matches", tags=["Matches"])
-_include_router_if_exists("app.api.auth", prefix="/api/auth", tags=["Auth"])
-_include_router_if_exists("app.api.routes.hoy", prefix="/api/hoy", tags=["Hoy"])
-_include_router_if_exists("app.api.routes.matches", prefix="/api/matches", tags=["Matches"])
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Startup
-# ─────────────────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    logger.info("[main] startup iniciado")
-    asyncio.create_task(start_scraping_loop())
-    logger.info("[main] scraper loop lanzado")
-
+# Compatibilidad con estructuras alternativas del repo
+_include_router_if_exists(app, "app.api.hoy", prefix="/api/hoy", tags=["Hoy"])
+_include_router_if_exists(app, "app.api.matches", prefix="/api/matches", tags=["Matches"])
+_include_router_if_exists(app, "app.api.auth", prefix="/api/auth", tags=["Auth"])
+_include_router_if_exists(app, "app.api.routes.hoy", prefix="/api/hoy", tags=["Hoy"])
+_include_router_if_exists(app, "app.api.routes.matches", prefix="/api/matches", tags=["Matches"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Healthchecks
@@ -98,9 +115,11 @@ async def root():
 
 @app.get("/health")
 async def health():
+    scheduler = getattr(app.state, "scheduler", None)
     return JSONResponse(
         {
             "ok": True,
             "status": "healthy",
+            "scheduler_running": bool(scheduler and getattr(scheduler, "running", False)),
         }
     )
