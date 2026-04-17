@@ -5,6 +5,8 @@ Reglas:
 - SIEMPRE usa ART (UTC-3)
 - /hoy, /resultados, /live y /calendario leen cache central (hoy:all + today:*)
 - Nunca bloquea request con scraping sincrónico
+- Home general prioriza agenda argentina real
+- Motorsport queda relegado u oculto si ya hay suficiente agenda real de otros deportes
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from app.editorial import (
     section_for,
     sort_key,
     pick_hero,
+    is_motorsport,
 )
 
 router = APIRouter(tags=["hoy"])
@@ -82,6 +85,32 @@ def _dedupe(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _load_errors() -> dict[str, str]:
+    try:
+        from scraping.registry import LOAD_ERRORS  # type: ignore
+        return LOAD_ERRORS
+    except Exception:
+        return {}
+
+
+def _non_motorsport_count(matches: list[dict[str, Any]]) -> int:
+    return sum(1 for m in matches if not is_motorsport(m))
+
+
+def _should_show_motorsport_section(matches: list[dict[str, Any]]) -> bool:
+    """
+    En home general, si ya hay agenda suficiente de otros deportes,
+    ocultamos el bloque motorsport para no robar espacio editorial
+    con Practice 1/2/3.
+    """
+    total_non_motorsport = _non_motorsport_count(matches)
+
+    if total_non_motorsport >= 3:
+        return False
+
+    return True
+
+
 def _build_sections(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     sections = {
         "selecciones": {"key": "selecciones", "title": "Selecciones nacionales", "items": []},
@@ -98,19 +127,18 @@ def _build_sections(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for key in sections:
         sections[key]["items"].sort(key=sort_key)
 
-    return [
+    ordered_keys = ["selecciones", "ligas_locales", "exterior"]
+
+    output = [
         sections[k]
-        for k in ("selecciones", "ligas_locales", "exterior", "motorsport")
+        for k in ordered_keys
         if sections[k]["items"]
     ]
 
+    if sections["motorsport"]["items"] and _should_show_motorsport_section(matches):
+        output.append(sections["motorsport"])
 
-def _load_errors() -> dict[str, str]:
-    try:
-        from scraping.registry import LOAD_ERRORS  # type: ignore
-        return LOAD_ERRORS
-    except Exception:
-        return {}
+    return output
 
 
 async def _build_summary(target_date: str) -> dict[str, Any]:
