@@ -5,6 +5,7 @@ Reglas:
 - SIEMPRE usa ART (UTC-3)
 - /hoy, /resultados, /live y /calendario leen cache central (hoy:all + today:*)
 - Nunca bloquea request con scraping sincrónico
+- Orden editorial fuerte: selección > ligas locales > copas internacionales > exterior > motorsport
 """
 
 from __future__ import annotations
@@ -28,49 +29,85 @@ def _to_dict(m: Match | dict[str, Any]) -> dict[str, Any]:
         d = m.model_dump()
     else:
         d = dict(m)
-    # compat para frontend nuevo (/hoy client) y viejo
+
     if d.get("tv") is None and d.get("broadcast"):
         d["tv"] = d.get("broadcast")
+
     return d
 
 
 def _norm_text(v: Any) -> str:
-    return (str(v or "").strip().lower())
+    return str(v or "").strip().lower()
 
 
-def _is_argentina_selection(match: dict[str, Any]) -> bool:
-    hay = " ".join(
+def _combined_text(match: dict[str, Any]) -> str:
+    return " ".join(
         [
             _norm_text(match.get("competition")),
             _norm_text(match.get("home_team")),
             _norm_text(match.get("away_team")),
             _norm_text(match.get("argentina_team")),
+            _norm_text(match.get("category")),
         ]
     )
+
+
+def _is_argentina_selection(match: dict[str, Any]) -> bool:
+    hay = _combined_text(match)
     return (
         _norm_text(match.get("argentina_relevance")) == "seleccion"
         or "seleccion argentina" in hay
         or "selección argentina" in hay
-        or ("argentina" in hay and ("sub 17" in hay or "sub-17" in hay or "sub 20" in hay or "sub-20" in hay or "sub 23" in hay or "sub-23" in hay))
+        or "argentina u17" in hay
+        or "argentina u20" in hay
+        or "argentina u23" in hay
+        or (
+            "argentina" in hay
+            and (
+                "sub 17" in hay
+                or "sub-17" in hay
+                or "sub 20" in hay
+                or "sub-20" in hay
+                or "sub 23" in hay
+                or "sub-23" in hay
+                or "u17" in hay
+                or "u20" in hay
+                or "u23" in hay
+            )
+        )
     )
 
 
 def _is_local_league(match: dict[str, Any]) -> bool:
     comp = _norm_text(match.get("competition"))
+
     if _norm_text(match.get("argentina_relevance")) == "club_arg":
         return True
+
     local_tokens = (
         "liga profesional",
+        "liga profesional de futbol",
+        "liga profesional de fútbol",
         "primera nacional",
-        "copa argentina",
-        "reserva",
         "primera b",
         "b metro",
         "federal a",
         "primera c",
+        "copa argentina",
+        "reserva",
         "femenina",
     )
     return any(t in comp for t in local_tokens)
+
+
+def _is_conmebol(match: dict[str, Any]) -> bool:
+    comp = _norm_text(match.get("competition"))
+    return (
+        "libertadores" in comp
+        or "sudamericana" in comp
+        or "recopa" in comp
+        or "conmebol" in comp
+    )
 
 
 def _is_motorsport(match: dict[str, Any]) -> bool:
@@ -87,18 +124,106 @@ def _section_for(match: dict[str, Any]) -> str:
     return "exterior"
 
 
-def _sort_key(match: dict[str, Any]) -> tuple:
+def _status_order(match: dict[str, Any]) -> int:
     status = _norm_text(match.get("status"))
-    status_order = {"live": 0, "upcoming": 1, "finished": 2}
+    return {"live": 0, "upcoming": 1, "finished": 2}.get(status, 9)
+
+
+def _parse_start_time(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text else "99:99"
+
+
+def _editorial_priority(match: dict[str, Any]) -> int:
+    """
+    Menor número = mayor prioridad editorial.
+    """
+    if _is_argentina_selection(match):
+        return 0
+
+    if _is_local_league(match):
+        return 1
+
+    if _is_conmebol(match):
+        return 2
+
+    if _norm_text(match.get("argentina_relevance")) == "jugador_arg" and not _is_motorsport(match):
+        return 3
+
+    if _is_motorsport(match):
+        return 4
+
+    return 5
+
+
+def _hero_penalty(match: dict[str, Any]) -> int:
+    """
+    Penalizaciones específicas para evitar héroes pobres.
+    """
+    hay = _combined_text(match)
+
+    penalty = 0
+
+    # Motorsport y sesiones técnicas deben bajar mucho
+    if _is_motorsport(match):
+        penalty += 60
+
+    session_tokens = [
+        "practice",
+        "práctica",
+        "fp1",
+        "fp2",
+        "fp3",
+        "training",
+        "session",
+        "qualy",
+        "clasificacion",
+        "clasificación",
+        "sprint",
+    ]
+    if any(t in hay for t in session_tokens):
+        penalty += 80
+
+    # Reservas / equipos B / amistosos deben bajar
+    if " ii" in hay or " b " in f" {hay} " or "reserva" in hay:
+        penalty += 20
+
+    # Si no tiene start_time, penalizar un poco
+    if not _norm_text(match.get("start_time")):
+        penalty += 8
+
+    return penalty
+
+
+def _sort_key(match: dict[str, Any]) -> tuple:
     section_order = {"selecciones": 0, "ligas_locales": 1, "exterior": 2, "motorsport": 3}
     section = match.get("category") or _section_for(match)
     rel = _norm_text(match.get("argentina_relevance"))
     rel_boost = {"seleccion": 0, "club_arg": 1, "jugador_arg": 2, "none": 3}.get(rel, 3)
+
     return (
-        status_order.get(status, 9),
+        _status_order(match),
+        _editorial_priority(match),
         section_order.get(section, 9),
         rel_boost,
-        _norm_text(match.get("start_time")),
+        _hero_penalty(match),
+        _parse_start_time(match.get("start_time")),
+    )
+
+
+def _hero_sort_key(match: dict[str, Any]) -> tuple:
+    """
+    Orden específico del hero:
+    1. prioridad editorial
+    2. live antes que upcoming antes que finished
+    3. penalizaciones de calidad editorial
+    4. hora
+    """
+    return (
+        _editorial_priority(match),
+        _status_order(match),
+        _hero_penalty(match),
+        _parse_start_time(match.get("start_time")),
     )
 
 
@@ -115,6 +240,7 @@ async def _read_hoy_all() -> list[Match]:
     data = await cache.get("hoy:all")
     if data is not None:
         return data
+
     data = await cache.get_last_valid("hoy:all")
     if data:
         return data
@@ -128,12 +254,17 @@ async def _read_hoy_all() -> list[Match]:
 def _dedupe(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
+
     for m in matches:
-        key = str(m.get("id") or f"{m.get('sport')}|{m.get('competition')}|{m.get('home_team')}|{m.get('away_team')}|{m.get('start_time')}")
+        key = str(
+            m.get("id")
+            or f"{m.get('sport')}|{m.get('competition')}|{m.get('home_team')}|{m.get('away_team')}|{m.get('start_time')}"
+        )
         if key in seen:
             continue
         seen.add(key)
         out.append(m)
+
     return out
 
 
@@ -144,11 +275,20 @@ def _build_sections(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "exterior": {"key": "exterior", "title": "Argentinos en el exterior", "items": []},
         "motorsport": {"key": "motorsport", "title": "Motorsport argentino", "items": []},
     }
+
     for m in matches:
         cat = _section_for(m)
         m["category"] = cat
         sections[cat]["items"].append(m)
-    return [sections[k] for k in ("selecciones", "ligas_locales", "exterior", "motorsport") if sections[k]["items"]]
+
+    for key in sections:
+        sections[key]["items"].sort(key=_sort_key)
+
+    return [
+        sections[k]
+        for k in ("selecciones", "ligas_locales", "exterior", "motorsport")
+        if sections[k]["items"]
+    ]
 
 
 def _load_errors() -> dict[str, str]:
@@ -159,13 +299,23 @@ def _load_errors() -> dict[str, str]:
         return {}
 
 
+def _pick_hero(matches: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not matches:
+        return None
+
+    ranked = sorted(matches, key=_hero_sort_key)
+    return ranked[0]
+
+
 async def _build_summary(target_date: str) -> dict[str, Any]:
     raw_matches = await _read_hoy_all()
     matches = [_to_dict(m) for m in raw_matches]
     matches = _dedupe(matches)
+
     for m in matches:
         if not m.get("category"):
             m["category"] = _section_for(m)
+
     matches.sort(key=_sort_key)
 
     live = [m for m in matches if _norm_text(m.get("status")) == "live"]
@@ -176,9 +326,12 @@ async def _build_summary(target_date: str) -> dict[str, Any]:
     for m in matches:
         by_sport[_norm_text(m.get("sport")) or "unknown"] += 1
 
+    hero = _pick_hero(matches)
+
     return {
         "date": target_date,
         "updated_at": now_art().isoformat(),
+        "hero": hero,
         "matches": matches,
         "stats": {
             "live": len(live),
@@ -220,6 +373,12 @@ async def api_sport(sport: str, date: str | None = Query(default=None)):
     target_date = date or today_art()
     try:
         matches = [_to_dict(m) for m in await _read_sport_cache(sport)]
+        matches = _dedupe(matches)
+        for m in matches:
+            if not m.get("category"):
+                m["category"] = _section_for(m)
+        matches.sort(key=_sort_key)
+
         return JSONResponse(
             content={
                 "ok": True,
@@ -242,6 +401,8 @@ async def api_resultados(date: str | None = Query(default=None)):
     try:
         summary = await _build_summary(target_date)
         finished = [m for m in summary["matches"] if _norm_text(m.get("status")) == "finished"]
+        finished.sort(key=_sort_key)
+
         return JSONResponse(
             content={
                 "ok": True,
@@ -264,6 +425,8 @@ async def api_live():
     try:
         summary = await _build_summary(target_date)
         live = [m for m in summary["matches"] if _norm_text(m.get("status")) == "live"]
+        live.sort(key=_sort_key)
+
         return JSONResponse(
             content={
                 "ok": True,
@@ -290,6 +453,7 @@ async def api_calendario(date: str | None = Query(default=None)):
             content={
                 "ok": True,
                 "date": target_date,
+                "hero": summary["hero"],
                 "stats": summary["stats"],
                 "sections": summary["sections"],
                 "matches": summary["matches"],
@@ -319,6 +483,7 @@ async def api_clear_cache(date: str | None = Query(default=None)):
     keys = ["hoy:all"] + [f"today:{s}" for s in settings.active_sports] + [f"live:{s}" for s in settings.active_sports]
     for k in keys:
         await cache.delete(k)
+
     return {
         "ok": True,
         "cleared": date or "all",
