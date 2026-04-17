@@ -1,4 +1,4 @@
-"""
+""""""
 Fútbol argentino robusto y estricto.
 
 Objetivos:
@@ -9,7 +9,8 @@ Objetivos:
     - Union Omaha
 - detectar solo entidades argentinas reales
 - incorporar mejor cobertura de ligas locales aunque los clubes no estén
-  todos manualmente en el mapa, siempre que la competencia sea argentina confiable
+  todos manualmente en el mapa, siempre que la competencia o el raw
+  den señales argentinas confiables
 - priorizar:
     1) Selección argentina
     2) Clubes argentinos reales
@@ -40,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 class FootballAdapter(BaseScraper):
     SOURCE_ORDER = ["promiedos", "afa", "api_football", "sofascore", "espn"]
-    DIAG_VERSION = "football-strict-v5-2026-04-17"
+    DIAG_VERSION = "football-strict-v6-2026-04-17"
     LAST_RUN: dict = {}
 
     TRUSTED_LOCAL_COMPETITIONS = {
@@ -152,9 +153,7 @@ class FootballAdapter(BaseScraper):
         "arg u23",
     }
 
-    # OJO:
-    # nada de alias peligrosos tipo "union", "arsenal", "racing", "san lorenzo"
-    # sueltos. Solo expresiones completas y seguras.
+    # Nada de alias ambiguos sueltos.
     ARGENTINE_CLUB_ALIASES = {
         "aldosivi": {"aldosivi", "club atletico aldosivi"},
         "argentinos_juniors": {"argentinos juniors", "aa argentinos juniors"},
@@ -241,6 +240,17 @@ class FootballAdapter(BaseScraper):
         "villa_dalmine": {"villa dalmine", "villa dálmine"},
         "defensores_unidos": {"defensores unidos"},
         "deportivo_armenio": {"deportivo armenio"},
+        "deportivo_espanol": {"deportivo espanol", "deportivo español"},
+        "flandria": {"flandria"},
+        "canuelas": {"cañuelas", "canuelas"},
+        "arg_de_rosario": {"argentino de rosario"},
+        "sportivo_italiano": {"sportivo italiano"},
+        "juventud_unida_sl": {"juventud unida universitaria"},
+        "olimpo": {"olimpo"},
+        "villa_mitre": {"villa mitre"},
+        "cipolletti": {"cipolletti"},
+        "sol_de_america": {"sol de america de formosa", "sol de américa de formosa"},
+        "deportivo_rincon": {"deportivo rincon", "deportivo rincón"},
     }
 
     OBVIOUS_FOREIGN_TOKENS = {
@@ -250,6 +260,7 @@ class FootballAdapter(BaseScraper):
         "uanl",
         "omaha",
         "de medellin",
+        "de medellín",
         "de quito",
         "de lima",
         "de asuncion",
@@ -276,6 +287,34 @@ class FootballAdapter(BaseScraper):
 
     def _norm(self, value: str | None) -> str:
         return normalize_str(value or "").replace("_", " ").strip()
+
+    def _raw_hints_text(self, raw: dict | None) -> str:
+        if not raw:
+            return ""
+
+        values = []
+        for key in [
+            "competition",
+            "league",
+            "tournament",
+            "category",
+            "stage",
+            "round",
+            "group",
+            "country",
+            "season",
+            "name",
+        ]:
+            value = raw.get(key)
+            if isinstance(value, str):
+                values.append(value)
+            elif isinstance(value, dict):
+                for sub in ["name", "title", "description"]:
+                    sub_val = value.get(sub)
+                    if isinstance(sub_val, str):
+                        values.append(sub_val)
+
+        return self._norm(" ".join(values))
 
     def _contains_noise(self, competition: str) -> bool:
         comp = self._norm(competition)
@@ -324,17 +363,21 @@ class FootballAdapter(BaseScraper):
         n = self._norm(text)
         return any(token in n for token in self.OBVIOUS_FOREIGN_TOKENS)
 
-    def _local_competition_fallback_ok(self, home: str, away: str, competition: str) -> bool:
+    def _local_competition_fallback_ok(self, home: str, away: str, competition: str, raw: dict | None) -> bool:
         """
         Si la competencia es local argentina confiable, aceptamos el partido
         incluso si el club no está explicitado en el mapa, salvo que haya señales
         claras de que NO es argentino.
+        También usa hints del raw por si competition viene como "Fútbol".
         """
         home_norm = self._norm(home)
         away_norm = self._norm(away)
         comp_norm = self._norm(competition)
+        raw_hints = self._raw_hints_text(raw)
 
-        if not self._is_trusted_local_competition(comp_norm):
+        competition_like = f"{comp_norm} {raw_hints}".strip()
+
+        if not self._is_trusted_local_competition(competition_like):
             return False
 
         if self._looks_foreign(home_norm) or self._looks_foreign(away_norm):
@@ -342,7 +385,7 @@ class FootballAdapter(BaseScraper):
 
         return True
 
-    def _classify_match(self, home: str, away: str, competition: str) -> tuple[str, str | None]:
+    def _classify_match(self, home: str, away: str, competition: str, raw: dict | None = None) -> tuple[str, str | None]:
         home_norm = self._norm(home)
         away_norm = self._norm(away)
         comp_norm = self._norm(competition)
@@ -364,12 +407,10 @@ class FootballAdapter(BaseScraper):
         home_arg = self._resolve_argentine_club(home)
         away_arg = self._resolve_argentine_club(away)
 
-        # Club argentino exacto
         if home_arg or away_arg:
             return "club_arg", home if home_arg else away
 
-        # Fallback por competencia local confiable (B Metro, Primera C, Federal A, Reserva, etc.)
-        if self._local_competition_fallback_ok(home, away, competition):
+        if self._local_competition_fallback_ok(home, away, competition, raw):
             return "club_arg", home
 
         return "none", None
@@ -390,7 +431,7 @@ class FootballAdapter(BaseScraper):
         broadcast: str | None,
         raw: dict,
     ) -> NormalizedMatch | None:
-        relevance, argentina_team = self._classify_match(home, away, competition)
+        relevance, argentina_team = self._classify_match(home, away, competition, raw=raw)
         if relevance == "none":
             return None
 
@@ -413,6 +454,7 @@ class FootballAdapter(BaseScraper):
         )
 
     def _reclassify_normalized(self, nm: NormalizedMatch, source_override: str | None = None) -> NormalizedMatch | None:
+        raw = getattr(nm, "raw", {}) or {}
         return self._build_match(
             mid=nm.id,
             source=source_override or getattr(nm, "source", "unknown"),
@@ -425,18 +467,19 @@ class FootballAdapter(BaseScraper):
             minute=getattr(nm, "minute", None),
             start_time_arg=getattr(nm, "start_time_arg", None),
             broadcast=getattr(nm, "broadcast", None),
-            raw=getattr(nm, "raw", {}) or {},
+            raw=raw,
         )
 
     def _is_editorial_match(self, m: NormalizedMatch) -> bool:
         comp = self._norm(m.competition or "")
+        raw_hints = self._raw_hints_text(getattr(m, "raw", {}) or {})
         rel = m.argentina_relevance or "none"
 
         if rel == "seleccion":
             return (
                 self._is_argentina_selection(m.home_team or "")
                 or self._is_argentina_selection(m.away_team or "")
-                or self._is_trusted_selection_competition(comp)
+                or self._is_trusted_selection_competition(f"{comp} {raw_hints}")
             )
 
         if rel == "club_arg":
