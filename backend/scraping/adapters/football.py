@@ -53,13 +53,14 @@ logger = logging.getLogger(__name__)
 
 class FootballAdapter(BaseScraper):
     SOURCE_ORDER = ["promiedos", "afa", "api_football", "sofascore", "espn"]
-    DIAG_VERSION = "football-flex-v2-2026-04-15"
+    DIAG_VERSION = "football-flex-v3-2026-04-16"
     LAST_RUN: dict = {}
 
-    # Competiciones locales / argentinas que queremos dejar pasar
     TRUSTED_LOCAL_COMPETITIONS = {
         "liga profesional",
         "liga profesional argentina",
+        "liga profesional de futbol",
+        "liga profesional de fútbol",
         "torneo betano",
         "primera division",
         "primera división",
@@ -92,7 +93,6 @@ class FootballAdapter(BaseScraper):
         "juveniles",
     }
 
-    # Copas internacionales donde juegan clubes argentinos
     TRUSTED_INTL_COMPETITIONS = {
         "conmebol libertadores",
         "copa libertadores",
@@ -105,7 +105,6 @@ class FootballAdapter(BaseScraper):
         "suruga bank",
     }
 
-    # Selecciones argentinas
     TRUSTED_SELECTION_COMPETITIONS = {
         "fifa world cup",
         "world cup",
@@ -123,6 +122,9 @@ class FootballAdapter(BaseScraper):
         "sudamericano sub 20",
         "sudamericano sub 17",
         "sudamericano sub 23",
+        "sudamericano u20",
+        "sudamericano u17",
+        "sudamericano u23",
         "preolimpico",
         "preolímpico",
         "juegos olimpicos",
@@ -133,9 +135,10 @@ class FootballAdapter(BaseScraper):
         "fifa womens world cup",
         "fifa women's world cup",
         "mundial femenino",
+        "conmebol championship",
+        "conmebol championship women",
     }
 
-    # Ruido que no queremos priorizar por ahora
     NOISE_COMPETITION_KEYWORDS = {
         "reserve league international",
         "club friendly",
@@ -149,9 +152,11 @@ class FootballAdapter(BaseScraper):
         "argentina women",
         "argentina femenino",
         "argentina femenina",
+        "argentina sub 15",
         "argentina sub 17",
         "argentina sub 20",
         "argentina sub 23",
+        "argentina u15",
         "argentina u17",
         "argentina u20",
         "argentina u23",
@@ -159,9 +164,15 @@ class FootballAdapter(BaseScraper):
         "selección argentina",
         "argentina olimpica",
         "argentina olímpica",
+        "arg",
+        "arg women",
+        "arg men",
+        "arg u15",
+        "arg u17",
+        "arg u20",
+        "arg u23",
     }
 
-    # Alias exactos / controlados
     ARGENTINE_CLUB_ALIASES = {
         "aldosivi": {"aldosivi", "club atletico aldosivi"},
         "argentinos_juniors": {"argentinos juniors", "aa argentinos juniors"},
@@ -170,7 +181,7 @@ class FootballAdapter(BaseScraper):
         "banfield": {"banfield", "club atletico banfield"},
         "barracas_central": {"barracas central", "club atletico barracas central"},
         "belgrano": {"belgrano", "club atletico belgrano", "belgrano de cordoba"},
-        "boca_juniors": {"boca juniors", "club atletico boca juniors"},
+        "boca_juniors": {"boca juniors", "club atletico boca juniors", "boca"},
         "central_cordoba": {
             "central cordoba",
             "central cordoba sde",
@@ -189,11 +200,11 @@ class FootballAdapter(BaseScraper):
         "independiente_rivadavia": {"independiente rivadavia", "ind rivadavia", "cs independiente rivadavia"},
         "instituto": {"instituto", "instituto de cordoba", "instituto acc"},
         "lanus": {"lanus", "club atletico lanus"},
-        "newells": {"newells", "newells old boys", "newell's old boys"},
+        "newells": {"newells", "newells old boys", "newell's old boys", "newells old boys"},
         "platense": {"platense", "club atletico platense"},
         "quilmes": {"quilmes", "quilmes atletico club"},
         "racing": {"racing", "racing club", "racing club avellaneda"},
-        "river": {"river plate", "club atletico river plate"},
+        "river": {"river plate", "club atletico river plate", "river"},
         "rosario_central": {"rosario central", "club atletico rosario central"},
         "san_lorenzo": {"san lorenzo", "san lorenzo de almagro", "club atletico san lorenzo"},
         "san_martin_sj": {"san martin de san juan", "san martin san juan"},
@@ -201,9 +212,8 @@ class FootballAdapter(BaseScraper):
         "sarmiento": {"sarmiento", "sarmiento junin", "sarmiento de junin"},
         "talleres": {"talleres", "talleres de cordoba", "ca talleres"},
         "tigre": {"tigre", "club atletico tigre"},
-        "union_sf": {"union de santa fe", "union santa fe", "club atletico union de santa fe"},
+        "union_sf": {"union de santa fe", "union santa fe", "club atletico union de santa fe", "union"},
         "velez": {"velez", "velez sarsfield", "club atletico velez sarsfield"},
-        # Ascenso / locales clave
         "all_boys": {"all boys"},
         "almagro": {"almagro"},
         "almirante_brown": {"almirante brown"},
@@ -229,6 +239,50 @@ class FootballAdapter(BaseScraper):
         "temperley": {"temperley"},
         "tristan_suarez": {"tristan suarez", "tristán suárez"},
         "union_mar_del_plata": {"union de mar del plata"},
+        "comunicaciones": {"comunicaciones", "club comunicaciones"},
+        "camioneros": {"camioneros", "club atletico camioneros"},
+        "gimnasia_y_tiro": {"gimnasia y tiro", "gimnasia y tiro de salta"},
+        "gimnasia_y_esgrima_mendoza": {"gimnasia y esgrima mendoza", "gimnasia y esgrima de mendoza"},
+    }
+
+    BIG_ARG_CLUB_HINTS = {
+        "boca",
+        "river",
+        "racing",
+        "independiente",
+        "san lorenzo",
+        "newells",
+        "newells",
+        "rosario central",
+        "talleres",
+        "velez",
+        "velez sarsfield",
+        "lanus",
+        "huracan",
+        "estudiantes",
+        "gimnasia",
+        "platense",
+        "union",
+        "belgrano",
+        "instituto",
+        "defensa y justicia",
+        "argentinos juniors",
+        "banfield",
+        "sarmiento",
+        "tigre",
+        "godoy cruz",
+        "central cordoba",
+        "barracas central",
+        "aldosivi",
+        "quilmes",
+        "chacarita",
+        "all boys",
+        "temperley",
+        "patronato",
+        "nueva chicago",
+        "ferro",
+        "comunicaciones",
+        "camioneros",
     }
 
     def _norm(self, value: str | None) -> str:
@@ -252,7 +306,22 @@ class FootballAdapter(BaseScraper):
 
     def _is_argentina_selection(self, name: str) -> bool:
         n = self._norm(name)
-        return n in self.ARGENTINA_SELECTION_ALIASES or n.startswith("argentina ")
+        if not n:
+            return False
+
+        if n in self.ARGENTINA_SELECTION_ALIASES:
+            return True
+
+        if "argentina" in n:
+            return True
+
+        if n.startswith("arg "):
+            return True
+
+        if "seleccion argentina" in n or "selección argentina" in n:
+            return True
+
+        return False
 
     def _resolve_argentine_club(self, name: str) -> str | None:
         n = self._norm(name)
@@ -263,13 +332,16 @@ class FootballAdapter(BaseScraper):
             if n in aliases:
                 return canonical
 
-        # fallback flexible controlado
         for canonical, aliases in self.ARGENTINE_CLUB_ALIASES.items():
             for alias in aliases:
                 if alias and alias in n:
                     return canonical
 
         return None
+
+    def _contains_big_arg_club_hint(self, text: str) -> bool:
+        t = self._norm(text)
+        return any(hint in t for hint in self.BIG_ARG_CLUB_HINTS)
 
     def _classify_match(
         self,
@@ -288,35 +360,37 @@ class FootballAdapter(BaseScraper):
         away_norm = self._norm(away)
         comp_norm = self._norm(competition)
 
-        if not home_norm or not away_norm:
+        if not home_norm and not away_norm:
             return "none", None
 
         if self._contains_noise(comp_norm):
             return "none", None
 
-        # 1) Selección argentina
         if self._is_argentina_selection(home) or self._is_argentina_selection(away):
-            return "seleccion", "Argentina"
+            return "seleccion", home if self._is_argentina_selection(home) else away
 
-        # 2) Clubes argentinos
+        if self._is_trusted_selection_competition(comp_norm) and (
+            "argentina" in home_norm or "argentina" in away_norm
+        ):
+            return "seleccion", home if "argentina" in home_norm else away
+
         home_arg = self._resolve_argentine_club(home)
         away_arg = self._resolve_argentine_club(away)
 
         if home_arg or away_arg:
-            # Ligas locales
             if self._is_trusted_local_competition(comp_norm):
                 return "club_arg", home if home_arg else away
 
-            # Copas internacionales
             if self._is_trusted_international_competition(comp_norm):
                 return "club_arg", home if home_arg else away
 
-            # Si la fuente vino rara pero detectamos club argentino real, igual entra
             return "club_arg", home if home_arg else away
 
-        # 3) Fallback de selección
+        if self._contains_big_arg_club_hint(home_norm) or self._contains_big_arg_club_hint(away_norm):
+            return "club_arg", home if self._contains_big_arg_club_hint(home_norm) else away
+
         if "argentina" in home_norm or "argentina" in away_norm:
-            return "seleccion", "Argentina"
+            return "seleccion", home if "argentina" in home_norm else away
 
         return "none", None
 
@@ -363,12 +437,15 @@ class FootballAdapter(BaseScraper):
         rel = m.argentina_relevance or "none"
 
         if rel == "seleccion":
-            return self._is_argentina_selection(m.home_team or "") or self._is_argentina_selection(m.away_team or "")
+            return (
+                self._is_argentina_selection(m.home_team or "")
+                or self._is_argentina_selection(m.away_team or "")
+                or self._is_trusted_selection_competition(comp)
+            )
 
         if rel == "club_arg":
             if self._contains_noise(comp):
                 return False
-            # ahora dejamos pasar más, porque el filtro principal ya está en _classify_match
             return True
 
         return False
@@ -399,7 +476,6 @@ class FootballAdapter(BaseScraper):
                 "error": error,
             }
 
-        # 1) Promiedos
         try:
             html = await get_today_html()
             raw = parse_matches(html)
@@ -415,7 +491,6 @@ class FootballAdapter(BaseScraper):
             record("promiedos", error=str(e))
             logger.warning(f"[football/promiedos] {e}")
 
-        # 2) AFA oficial
         try:
             html = await get_fixture_html()
             raw = parse_afa_fixture(html or "")
@@ -431,7 +506,6 @@ class FootballAdapter(BaseScraper):
             record("afa", error=str(e))
             logger.warning(f"[football/afa] {e}")
 
-        # 3) API-Football
         try:
             raw = await get_fixtures_today()
             before = len(matches)
@@ -468,7 +542,6 @@ class FootballAdapter(BaseScraper):
             record("api_football", error=str(e))
             logger.warning(f"[football/api_football] {e}")
 
-        # 4) Sofascore
         try:
             before = len(matches)
             raw_total = 0
@@ -488,7 +561,6 @@ class FootballAdapter(BaseScraper):
             record("sofascore", error=str(e))
             logger.warning(f"[football/sofascore] {e}")
 
-        # 5) ESPN fallback final
         try:
             before = len(matches)
             espn_raw = await self._fetch_espn_events()
