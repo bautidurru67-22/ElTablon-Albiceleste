@@ -1,4 +1,4 @@
-""""""
+"""
 Fútbol argentino robusto y estricto.
 
 Objetivos:
@@ -153,7 +153,6 @@ class FootballAdapter(BaseScraper):
         "arg u23",
     }
 
-    # Nada de alias ambiguos sueltos.
     ARGENTINE_CLUB_ALIASES = {
         "aldosivi": {"aldosivi", "club atletico aldosivi"},
         "argentinos_juniors": {"argentinos juniors", "aa argentinos juniors"},
@@ -363,13 +362,13 @@ class FootballAdapter(BaseScraper):
         n = self._norm(text)
         return any(token in n for token in self.OBVIOUS_FOREIGN_TOKENS)
 
-    def _local_competition_fallback_ok(self, home: str, away: str, competition: str, raw: dict | None) -> bool:
-        """
-        Si la competencia es local argentina confiable, aceptamos el partido
-        incluso si el club no está explicitado en el mapa, salvo que haya señales
-        claras de que NO es argentino.
-        También usa hints del raw por si competition viene como "Fútbol".
-        """
+    def _local_competition_fallback_ok(
+        self,
+        home: str,
+        away: str,
+        competition: str,
+        raw: dict | None,
+    ) -> bool:
         home_norm = self._norm(home)
         away_norm = self._norm(away)
         comp_norm = self._norm(competition)
@@ -385,7 +384,13 @@ class FootballAdapter(BaseScraper):
 
         return True
 
-    def _classify_match(self, home: str, away: str, competition: str, raw: dict | None = None) -> tuple[str, str | None]:
+    def _classify_match(
+        self,
+        home: str,
+        away: str,
+        competition: str,
+        raw: dict | None = None,
+    ) -> tuple[str, str | None]:
         home_norm = self._norm(home)
         away_norm = self._norm(away)
         comp_norm = self._norm(competition)
@@ -453,7 +458,11 @@ class FootballAdapter(BaseScraper):
             raw=raw,
         )
 
-    def _reclassify_normalized(self, nm: NormalizedMatch, source_override: str | None = None) -> NormalizedMatch | None:
+    def _reclassify_normalized(
+        self,
+        nm: NormalizedMatch,
+        source_override: str | None = None,
+    ) -> NormalizedMatch | None:
         raw = getattr(nm, "raw", {}) or {}
         return self._build_match(
             mid=nm.id,
@@ -506,7 +515,12 @@ class FootballAdapter(BaseScraper):
             seen.add(m.id)
             matches.append(m)
 
-        def record(source: str, raw_count: int = 0, added_count: int = 0, error: str | None = None):
+        def record(
+            source: str,
+            raw_count: int = 0,
+            added_count: int = 0,
+            error: str | None = None,
+        ):
             diagnostics["sources"][source] = {
                 "raw_count": raw_count,
                 "added_count": added_count,
