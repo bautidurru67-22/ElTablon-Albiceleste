@@ -5,7 +5,12 @@ Reglas:
 - SIEMPRE usa ART (UTC-3)
 - /hoy, /resultados, /live y /calendario leen cache central (hoy:all + today:*)
 - Nunca bloquea request con scraping sincrónico
-- Orden editorial fuerte: selección > ligas locales > copas internacionales > exterior > motorsport
+- Ranking editorial tipo producto:
+    1) Selección Argentina
+    2) Liga local argentina
+    3) Copas CONMEBOL con clubes argentinos
+    4) Argentinos en el exterior
+    5) Motorsport argentino
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ def _combined_text(match: dict[str, Any]) -> str:
             _norm_text(match.get("away_team")),
             _norm_text(match.get("argentina_team")),
             _norm_text(match.get("category")),
+            _norm_text(match.get("sport")),
         ]
     )
 
@@ -93,9 +99,11 @@ def _is_local_league(match: dict[str, Any]) -> bool:
         "b metro",
         "federal a",
         "primera c",
+        "primera d",
         "copa argentina",
         "reserva",
         "femenina",
+        "torneo betano",
     )
     return any(t in comp for t in local_tokens)
 
@@ -110,8 +118,42 @@ def _is_conmebol(match: dict[str, Any]) -> bool:
     )
 
 
+def _is_top_exterior(match: dict[str, Any]) -> bool:
+    comp = _norm_text(match.get("competition"))
+    top_tokens = (
+        "premier league",
+        "la liga",
+        "serie a",
+        "bundesliga",
+        "ligue 1",
+        "champions league",
+        "europa league",
+        "conference league",
+    )
+    return any(t in comp for t in top_tokens)
+
+
 def _is_motorsport(match: dict[str, Any]) -> bool:
     return _norm_text(match.get("sport")) in {"motorsport", "motogp", "dakar"}
+
+
+def _is_session_event(match: dict[str, Any]) -> bool:
+    hay = _combined_text(match)
+    session_tokens = (
+        "practice",
+        "práctica",
+        "fp1",
+        "fp2",
+        "fp3",
+        "training",
+        "entrenamiento",
+        "session",
+        "qualy",
+        "clasificacion",
+        "clasificación",
+        "sprint",
+    )
+    return any(t in hay for t in session_tokens)
 
 
 def _section_for(match: dict[str, Any]) -> str:
@@ -119,7 +161,7 @@ def _section_for(match: dict[str, Any]) -> str:
         return "selecciones"
     if _is_motorsport(match):
         return "motorsport"
-    if _is_local_league(match):
+    if _is_local_league(match) or _is_conmebol(match):
         return "ligas_locales"
     return "exterior"
 
@@ -134,96 +176,117 @@ def _parse_start_time(value: Any) -> str:
     return text if text else "99:99"
 
 
-def _editorial_priority(match: dict[str, Any]) -> int:
+def _editorial_score(match: dict[str, Any]) -> int:
     """
-    Menor número = mayor prioridad editorial.
+    Más alto = más importante.
     """
-    if _is_argentina_selection(match):
-        return 0
+    score = 0
+    hay = _combined_text(match)
+    status = _norm_text(match.get("status"))
+    relevance = _norm_text(match.get("argentina_relevance"))
+    sport = _norm_text(match.get("sport"))
 
+    # Base por relevancia argentina
+    if relevance == "seleccion":
+        score += 1000
+    elif relevance == "club_arg":
+        score += 700
+    elif relevance == "jugador_arg":
+        score += 450
+
+    # Fútbol manda editorialmente
+    if sport == "futbol":
+        score += 220
+    elif sport == "basquet":
+        score += 120
+    elif sport == "tenis":
+        score += 100
+    elif sport == "rugby":
+        score += 90
+    elif sport == "hockey":
+        score += 90
+    elif sport == "voley":
+        score += 80
+    elif _is_motorsport(match):
+        score += 40
+
+    # Selección nacional
+    if _is_argentina_selection(match):
+        score += 1200
+
+    # Ligas locales y copas
     if _is_local_league(match):
-        return 1
+        score += 900
 
     if _is_conmebol(match):
-        return 2
+        score += 800
 
-    if _norm_text(match.get("argentina_relevance")) == "jugador_arg" and not _is_motorsport(match):
-        return 3
+    # Exterior top
+    if _is_top_exterior(match):
+        score += 280
 
+    # Status
+    if status == "live":
+        score += 350
+    elif status == "upcoming":
+        score += 140
+    elif status == "finished":
+        score += 40
+
+    # Bonus por tener argentino identificado
+    if _norm_text(match.get("argentina_team")):
+        score += 50
+
+    # Penalizaciones editoriales
     if _is_motorsport(match):
-        return 4
+        score -= 120
 
-    return 5
+    if _is_session_event(match):
+        score -= 260
 
+    # B / II / reserva bajan prioridad de hero
+    if " ii" in f" {hay}" or " reserva" in f" {hay}" or " filial" in hay:
+        score -= 180
 
-def _hero_penalty(match: dict[str, Any]) -> int:
-    """
-    Penalizaciones específicas para evitar héroes pobres.
-    """
-    hay = _combined_text(match)
+    # Amistosos bajan
+    if "amistoso" in hay or "friendly" in hay:
+        score -= 130
 
-    penalty = 0
+    # Si competencia sigue genérica, penalizar
+    if _norm_text(match.get("competition")) in {"futbol", "fútbol", "football", "soccer"}:
+        score -= 120
 
-    # Motorsport y sesiones técnicas deben bajar mucho
-    if _is_motorsport(match):
-        penalty += 60
-
-    session_tokens = [
-        "practice",
-        "práctica",
-        "fp1",
-        "fp2",
-        "fp3",
-        "training",
-        "session",
-        "qualy",
-        "clasificacion",
-        "clasificación",
-        "sprint",
-    ]
-    if any(t in hay for t in session_tokens):
-        penalty += 80
-
-    # Reservas / equipos B / amistosos deben bajar
-    if " ii" in hay or " b " in f" {hay} " or "reserva" in hay:
-        penalty += 20
-
-    # Si no tiene start_time, penalizar un poco
-    if not _norm_text(match.get("start_time")):
-        penalty += 8
-
-    return penalty
+    return score
 
 
 def _sort_key(match: dict[str, Any]) -> tuple:
-    section_order = {"selecciones": 0, "ligas_locales": 1, "exterior": 2, "motorsport": 3}
-    section = match.get("category") or _section_for(match)
-    rel = _norm_text(match.get("argentina_relevance"))
-    rel_boost = {"seleccion": 0, "club_arg": 1, "jugador_arg": 2, "none": 3}.get(rel, 3)
-
+    """
+    Orden visual general:
+    - live antes
+    - mayor score editorial antes
+    - hora antes
+    """
     return (
         _status_order(match),
-        _editorial_priority(match),
-        section_order.get(section, 9),
-        rel_boost,
-        _hero_penalty(match),
+        -_editorial_score(match),
         _parse_start_time(match.get("start_time")),
+        _norm_text(match.get("competition")),
+        _norm_text(match.get("home_team")),
     )
 
 
 def _hero_sort_key(match: dict[str, Any]) -> tuple:
     """
-    Orden específico del hero:
-    1. prioridad editorial
-    2. live antes que upcoming antes que finished
-    3. penalizaciones de calidad editorial
-    4. hora
+    Orden del hero:
+    - mayor score editorial
+    - live antes
+    - hora antes
     """
     return (
-        _editorial_priority(match),
+        -_editorial_score(match),
         _status_order(match),
-        _hero_penalty(match),
         _parse_start_time(match.get("start_time")),
+        _norm_text(match.get("competition")),
     )
 
 
@@ -302,7 +365,6 @@ def _load_errors() -> dict[str, str]:
 def _pick_hero(matches: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not matches:
         return None
-
     ranked = sorted(matches, key=_hero_sort_key)
     return ranked[0]
 
@@ -353,10 +415,6 @@ async def _build_summary(target_date: str) -> dict[str, Any]:
 
 @router.get("/hoy")
 async def api_hoy(date: str | None = Query(default=None)):
-    """
-    Retorna agenda argentina del día.
-    date: YYYY-MM-DD en ART. Si no viene, usa hoy ART.
-    """
     target_date = date or today_art()
     try:
         summary = await _build_summary(target_date)
@@ -374,9 +432,11 @@ async def api_sport(sport: str, date: str | None = Query(default=None)):
     try:
         matches = [_to_dict(m) for m in await _read_sport_cache(sport)]
         matches = _dedupe(matches)
+
         for m in matches:
             if not m.get("category"):
                 m["category"] = _section_for(m)
+
         matches.sort(key=_sort_key)
 
         return JSONResponse(
