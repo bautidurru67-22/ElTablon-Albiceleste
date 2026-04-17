@@ -239,8 +239,19 @@ function groupMatches(matches: Match[]) {
 }
 
 function capForBlock(matches: Match[], limit: number) {
-  if (matches.length <= limit) return matches;
-  return matches.slice(0, limit);
+  const unique = matches.filter(
+    (match, index, arr) =>
+      arr.findIndex(
+        (m) =>
+          m.home_team === match.home_team &&
+          m.away_team === match.away_team &&
+          m.competition === match.competition &&
+          m.start_time === match.start_time,
+      ) === index,
+  );
+
+  if (unique.length <= limit) return unique;
+  return unique.slice(0, limit);
 }
 
 function normalizeStatus(status: string) {
@@ -278,14 +289,12 @@ function statusPriority(status: "live" | "upcoming" | "finished") {
 
 function heroPriorityScore(match: Match) {
   const status = normalizeStatus(match.status);
-  const statusBoost = status === "live" ? 8 : status === "upcoming" ? 4 : 0;
+  const statusBoost = status === "live" ? 100 : status === "upcoming" ? 40 : 10;
+
   return relevanceScore(match) + statusBoost;
 }
 
 function relevanceScore(match: Match) {
-  const backendScore = Number(match.relevance_score);
-  if (Number.isFinite(backendScore)) return backendScore;
-
   const sport = normalizeSport(match.sport);
   const pool = [
     match.competition,
@@ -299,17 +308,30 @@ function relevanceScore(match: Match) {
     .join(" ")
     .toLowerCase();
 
-  let score = 10;
+  let score = 0;
 
-  if (pool.includes("argentina")) score += 20;
-  if (match.argentina_relevance === "seleccion") score += 70;
-  if (match.argentina_relevance === "club_arg") score += 50;
-  if (match.argentina_relevance === "jugador_arg") score += 35;
-  if (sport === "futbol") score += 30;
-  if (normalizeStatus(match.status) === "live") score += 10;
-  if (match.argentina_team) score += 10;
-  if (isSessionEvent(match)) score -= 30;
-  if (sport === "motorsport") score -= 18;
+  if (match.argentina_relevance === "seleccion") score += 120;
+  if (match.argentina_relevance === "club_arg") score += 90;
+  if (match.argentina_relevance === "jugador_arg") score += 50;
+
+  if (sport === "futbol") score += 40;
+  if (sport === "basquet") score += 22;
+  if (sport === "tenis") score += 18;
+  if (sport === "rugby") score += 18;
+  if (sport === "hockey") score += 18;
+  if (sport === "volley") score += 16;
+  if (sport === "motorsport") score -= 25;
+
+  if (pool.includes("argentina u17")) score += 25;
+  if (pool.includes("selección argentina")) score += 35;
+  if (pool.includes("copa argentina")) score += 15;
+  if (pool.includes("liga profesional")) score += 20;
+  if (pool.includes("primera")) score += 10;
+
+  if (normalizeStatus(match.status) === "live") score += 60;
+  if (normalizeStatus(match.status) === "finished") score -= 10;
+
+  if (isSessionEvent(match)) score -= 50;
 
   return score;
 }
@@ -337,10 +359,29 @@ function getEditorialTags(match: Match) {
     .join(" ")
     .toLowerCase();
 
-  if (match.argentina_relevance === "seleccion" || pool.includes("argentina")) tags.push("Selección Argentina");
-  if (match.category === "ligas_locales" || pool.includes("liga") || pool.includes("copa argentina")) tags.push("Liga local");
-  if (match.argentina_relevance === "jugador_arg") tags.push("Argentino en el exterior");
-  if (tags.length === 0) tags.push("Evento destacado");
+  if (
+    match.argentina_relevance === "seleccion" ||
+    pool.includes("argentina u17") ||
+    pool.includes("selección argentina")
+  ) {
+    tags.push("Selección Argentina");
+  }
+
+  if (match.argentina_relevance === "club_arg" || match.category === "ligas_locales") {
+    tags.push("Liga local");
+  }
+
+  if (match.argentina_relevance === "jugador_arg") {
+    tags.push("Argentino en el exterior");
+  }
+
+  if (sportLabel(match.sport) === "Motorsport" && tags.length === 0) {
+    tags.push("Motorsport argentino");
+  }
+
+  if (tags.length === 0) {
+    tags.push("Evento destacado");
+  }
 
   return tags.slice(0, 2);
 }
