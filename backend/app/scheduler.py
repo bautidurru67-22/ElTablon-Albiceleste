@@ -46,7 +46,9 @@ async def _run_sport(sport: str, status_filter: str | None = None) -> list:
         # Cobertura rápida multi-deporte:
         # si un deporte no logra relevancia argentina, no devolver vacío total.
         # Esto ayuda a poblar /api/hoy mientras se afinan detectores por deporte.
-        selected = arg if arg else ([] if sport == "futbol" else normalized)
+        # Si no hubo detección argentina para fútbol, devolvemos igualmente
+        # el feed normalizado para no vaciar completamente la agenda.
+        selected = arg if arg else normalized
 
         if status_filter:
             selected = [m for m in selected if m.status == status_filter]
@@ -65,10 +67,9 @@ async def _cache_sport(key: str, sport: str,
     logger.info(f"[job] ▶ {key}")
     try:
         results = await _run_sport(sport, status_filter)
-        if results:
-            await cache.set(key, results, ttl=ttl, source=f"scraper/{sport}")
+        await cache.set(key, results, ttl=ttl, source=f"scraper/{sport}")
         elapsed = round((_time.monotonic() - t0) * 1000)
-        logger.info(f"[job] ✓ {key} → {len(results)} partidos [{elapsed}ms]")
+        logger.info(f"[job] ✓ {key} → encontrados={len(results)} persistidos={len(results)} [{elapsed}ms]")
     except Exception as e:
         elapsed = round((_time.monotonic() - t0) * 1000)
         logger.error(f"[job] ✗ {key}: {e} [{elapsed}ms]")
