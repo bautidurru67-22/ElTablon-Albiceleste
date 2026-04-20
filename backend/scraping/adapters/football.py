@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 class FootballAdapter(BaseScraper):
     SOURCE_ORDER = ["promiedos", "afa", "api_football", "sofascore", "espn"]
-    DIAG_VERSION = "football-strict-v6-2026-04-17"
+    DIAG_VERSION = "football-strict-v7-2026-04-17"
     LAST_RUN: dict = {}
 
     TRUSTED_LOCAL_COMPETITIONS = {
@@ -90,6 +90,14 @@ class FootballAdapter(BaseScraper):
         "sudamericana",
         "recopa sudamericana",
         "conmebol recopa",
+        "serie a",
+        "premier league",
+        "la liga",
+        "bundesliga",
+        "ligue 1",
+        "champions league",
+        "europa league",
+        "conference league",
     }
 
     TRUSTED_SELECTION_COMPETITIONS = {
@@ -291,7 +299,7 @@ class FootballAdapter(BaseScraper):
         if not raw:
             return ""
 
-        values = []
+        values: list[str] = []
         for key in [
             "competition",
             "league",
@@ -323,10 +331,6 @@ class FootballAdapter(BaseScraper):
         comp = self._norm(competition)
         return any(k in comp for k in self.TRUSTED_LOCAL_COMPETITIONS)
 
-    def _is_trusted_international_competition(self, competition: str) -> bool:
-        comp = self._norm(competition)
-        return any(k in comp for k in self.TRUSTED_INTL_COMPETITIONS)
-
     def _is_trusted_selection_competition(self, competition: str) -> bool:
         comp = self._norm(competition)
         return any(k in comp for k in self.TRUSTED_SELECTION_COMPETITIONS)
@@ -335,17 +339,11 @@ class FootballAdapter(BaseScraper):
         n = self._norm(name)
         if not n:
             return False
-
         if n in self.ARGENTINA_SELECTION_ALIASES:
             return True
-
         if n.startswith("argentina "):
             return True
-
-        if "seleccion argentina" in n or "selección argentina" in n:
-            return True
-
-        return False
+        return "seleccion argentina" in n or "selección argentina" in n
 
     def _resolve_argentine_club(self, name: str) -> str | None:
         n = self._norm(name)
@@ -436,7 +434,16 @@ class FootballAdapter(BaseScraper):
         broadcast: str | None,
         raw: dict,
     ) -> NormalizedMatch | None:
-        relevance, argentina_team = self._classify_match(home, away, competition, raw=raw)
+        inferred_competition = (
+            competition
+            or raw.get("competition")
+            or raw.get("league")
+            or raw.get("tournament")
+            or raw.get("category")
+            or "Fútbol"
+        )
+
+        relevance, argentina_team = self._classify_match(home, away, inferred_competition, raw=raw)
         if relevance == "none":
             return None
 
@@ -444,7 +451,7 @@ class FootballAdapter(BaseScraper):
             id=mid,
             sport="futbol",
             source=source,
-            competition=competition or "Fútbol",
+            competition=inferred_competition,
             home_team=home,
             away_team=away,
             home_score=home_score,
@@ -507,6 +514,8 @@ class FootballAdapter(BaseScraper):
 
         def add(m: NormalizedMatch | None):
             if not m:
+                return
+            if m.argentina_relevance == "none":
                 return
             if not self._is_editorial_match(m):
                 return
