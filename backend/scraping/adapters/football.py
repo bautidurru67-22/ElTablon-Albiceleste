@@ -7,6 +7,7 @@ Objetivos:
     - Racing Santander
     - Sportivo San Lorenzo
     - Union Omaha
+    - Universidad Católica / Unión La Calera
 - detectar solo entidades argentinas reales
 - incorporar mejor cobertura de ligas locales aunque los clubes no estén
   todos manualmente en el mapa, siempre que la competencia o el raw
@@ -26,22 +27,22 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from scraping.argentina import normalize_str
 from scraping.base_scraper import BaseScraper
 from scraping.models import NormalizedMatch
-from scraping.sources.promiedos import get_today_html, parse_matches
+from scraping.normalizers import sofascore_normalizer
+from scraping.normalizers.promiedos_normalizer import normalize_matches as normalize_promiedos
 from scraping.sources.afa import get_fixture_html, parse_fixture as parse_afa_fixture
 from scraping.sources.api_football import get_fixtures_today, parse_fixture as parse_api_football
-from scraping.normalizers.promiedos_normalizer import normalize_matches as normalize_promiedos
+from scraping.sources.promiedos import get_today_html, parse_matches
 from scraping.sources.sofascore import get_events_by_date, get_live_events
-from scraping.normalizers import sofascore_normalizer
-from scraping.argentina import normalize_str
 
 logger = logging.getLogger(__name__)
 
 
 class FootballAdapter(BaseScraper):
     SOURCE_ORDER = ["promiedos", "afa", "api_football", "sofascore", "espn"]
-    DIAG_VERSION = "football-strict-v7-2026-04-17"
+    DIAG_VERSION = "football-strict-v8-2026-04-17"
     LAST_RUN: dict = {}
 
     TRUSTED_LOCAL_COMPETITIONS = {
@@ -225,7 +226,7 @@ class FootballAdapter(BaseScraper):
         "deportivo_maipu": {"deportivo maipu", "deportivo maipú"},
         "deportivo_moron": {"deportivo moron", "deportivo morón"},
         "estudiantes_rc": {"estudiantes de rio cuarto", "estudiantes de río cuarto"},
-        "gimnasia_mendoza": {"gimnasia de mendoza", "gimnasia y esgrima de mendoza"},
+        "gimnasia_mendoza": {"gimnasia y esgrima de mendoza", "gimnasia de mendoza"},
         "gimnasia_jujuy": {"gimnasia de jujuy"},
         "los_andes": {"los andes"},
         "mitre": {"mitre de santiago del estero"},
@@ -260,38 +261,6 @@ class FootballAdapter(BaseScraper):
         "deportivo_rincon": {"deportivo rincon", "deportivo rincón"},
     }
 
-    OBVIOUS_FOREIGN_TOKENS = {
-        "de cali",
-        "de palmira",
-        "santander",
-        "uanl",
-        "omaha",
-        "de medellin",
-        "de medellín",
-        "de quito",
-        "de lima",
-        "de asuncion",
-        "de asunción",
-        "ecuador",
-        "colombia",
-        "chile",
-        "mexico",
-        "méxico",
-        "peru",
-        "perú",
-        "paraguay",
-        "uruguay",
-        "venezuela",
-        "bolivia",
-        "brazil",
-        "brasil",
-        "saudi arabia",
-        "arabia",
-        "spain",
-        "españa",
-        "espana",
-    }
-
     def _norm(self, value: str | None) -> str:
         return normalize_str(value or "").replace("_", " ").strip()
 
@@ -300,18 +269,7 @@ class FootballAdapter(BaseScraper):
             return ""
 
         values: list[str] = []
-        for key in [
-            "competition",
-            "league",
-            "tournament",
-            "category",
-            "stage",
-            "round",
-            "group",
-            "country",
-            "season",
-            "name",
-        ]:
+        for key in ["competition", "league", "tournament", "category", "stage", "round", "group", "country", "season", "name"]:
             value = raw.get(key)
             if isinstance(value, str):
                 values.append(value)
@@ -358,7 +316,57 @@ class FootballAdapter(BaseScraper):
 
     def _looks_foreign(self, text: str) -> bool:
         n = self._norm(text)
-        return any(token in n for token in self.OBVIOUS_FOREIGN_TOKENS)
+
+        foreign_markers = [
+            "chile",
+            "colombia",
+            "mexico",
+            "méxico",
+            "peru",
+            "perú",
+            "paraguay",
+            "uruguay",
+            "ecuador",
+            "bolivia",
+            "venezuela",
+            "brazil",
+            "brasil",
+            "saudi",
+            "arabia",
+            "spain",
+            "españa",
+            "espana",
+            "de cali",
+            "de palmira",
+            "santander",
+            "uanl",
+            "omaha",
+            "de medellin",
+            "de medellín",
+            "de quito",
+            "de lima",
+            "de asuncion",
+            "de asunción",
+        ]
+
+        hard_block = [
+            "universidad catolica",
+            "universidad de chile",
+            "colo colo",
+            "union la calera",
+            "palestino",
+            "huachipato",
+            "cobreloa",
+            "cobresal",
+        ]
+
+        if any(x in n for x in foreign_markers):
+            return True
+
+        if any(x in n for x in hard_block):
+            return True
+
+        return False
 
     def _local_competition_fallback_ok(
         self,
@@ -399,12 +407,13 @@ class FootballAdapter(BaseScraper):
         if self._contains_noise(comp_norm):
             return "none", None
 
+        if self._looks_foreign(home_norm) and self._looks_foreign(away_norm):
+            return "none", None
+
         if self._is_argentina_selection(home) or self._is_argentina_selection(away):
             return "seleccion", home if self._is_argentina_selection(home) else away
 
-        if self._is_trusted_selection_competition(comp_norm) and (
-            "argentina" in home_norm or "argentina" in away_norm
-        ):
+        if self._is_trusted_selection_competition(comp_norm) and ("argentina" in home_norm or "argentina" in away_norm):
             return "seleccion", home if "argentina" in home_norm else away
 
         home_arg = self._resolve_argentine_club(home)
