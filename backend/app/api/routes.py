@@ -29,6 +29,12 @@ except Exception:
     pass
 
 try:
+    from app.api import sources
+    router.include_router(sources.router, prefix="/sources", tags=["sources"])
+except Exception:
+    pass
+
+try:
     from app.api import football
     router.include_router(football.router, prefix="/football", tags=["football"])
 except Exception:
