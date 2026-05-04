@@ -4,6 +4,7 @@ from app.services.competition_service import (
     get_competition_fixture,
     get_competition_table,
     get_competition_scorers,
+    get_competition_overview,
     COMPETITION_MAP,
     resolve_competition_slug,
 )
@@ -24,6 +25,24 @@ def _validate(sport: str, slug: str | None = None) -> None:
 async def competitions_by_sport(sport: str):
     _validate(sport)
     return await list_competitions(sport)
+
+
+@router.get("/{sport}/{slug}")
+async def competition_overview(sport: str, slug: str):
+    _validate(sport, slug)
+    return await get_competition_overview(sport, slug)
+
+
+@router.get("/{sport}/{slug}/fixtures")
+async def competition_fixtures_v2(sport: str, slug: str):
+    _validate(sport, slug)
+    return await get_competition_fixture(sport, slug)
+
+
+@router.get("/{sport}/{slug}/standings")
+async def competition_standings_v2(sport: str, slug: str):
+    _validate(sport, slug)
+    return await get_competition_table(sport, slug)
 
 
 @router.get("/{sport}/{slug}/fixture")
