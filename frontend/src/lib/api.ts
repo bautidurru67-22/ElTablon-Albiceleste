@@ -56,6 +56,20 @@ export const api = {
         { revalidate: 120 }
       ),
 
+    overview: (sport: string, slug: string) =>
+      apiFetch<{
+        sport: string
+        competition: string
+        season: number
+        updated_at: string
+        source_used: string | null
+        sources_attempted: string[]
+        standings: Array<Record<string, unknown>>
+        fixtures: Array<Record<string, unknown>>
+        groups: Array<Record<string, unknown>>
+        error: string | null
+      }>(`/api/competitions/${sport}/${slug}`, { revalidate: 60 }),
+
     fixture: (sport: string, slug: string) =>
       apiFetch<{
         sport: string
