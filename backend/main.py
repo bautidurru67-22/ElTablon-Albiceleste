@@ -114,6 +114,8 @@ async def root():
 
 # ── Rutas /api ──────────────────────────────────────────────────────────────
 from app.api.routes import router
+from app.api import competitions as competitions_api
 app.include_router(router, prefix="/api")
+app.include_router(competitions_api.router, prefix="/api/competition", tags=["competition"])
 
 logger.info(f"[startup] CORS: {settings.allowed_origins}")
