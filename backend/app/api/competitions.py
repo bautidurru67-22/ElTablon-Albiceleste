@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, HTTPException
 from app.services.competition_service import (
     list_competitions,
@@ -10,6 +11,7 @@ from app.services.competition_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _validate(sport: str, slug: str | None = None) -> None:
@@ -29,18 +31,21 @@ async def competitions_by_sport(sport: str):
 
 @router.get("/{sport}/{slug}")
 async def competition_overview(sport: str, slug: str):
+    logger.info("competitions_endpoint endpoint=competition_overview sport=%s competition_slug=%s", sport, slug)
     _validate(sport, slug)
     return await get_competition_overview(sport, slug)
 
 
 @router.get("/{sport}/{slug}/fixtures")
 async def competition_fixtures_v2(sport: str, slug: str):
+    logger.info("competitions_endpoint endpoint=competition_fixtures_v2 sport=%s competition_slug=%s", sport, slug)
     _validate(sport, slug)
     return await get_competition_fixture(sport, slug)
 
 
 @router.get("/{sport}/{slug}/standings")
 async def competition_standings_v2(sport: str, slug: str):
+    logger.info("competitions_endpoint endpoint=competition_standings_v2 sport=%s competition_slug=%s", sport, slug)
     _validate(sport, slug)
     return await get_competition_table(sport, slug)
 
