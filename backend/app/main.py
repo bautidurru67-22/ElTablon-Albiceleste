@@ -96,6 +96,8 @@ _include_router_if_exists(app, "backend.api_hoy", tags=["Hoy"])
 # Compatibilidad con estructuras alternativas del repo
 _include_router_if_exists(app, "app.api.hoy", prefix="/api/hoy", tags=["Hoy"])
 _include_router_if_exists(app, "app.api.matches", prefix="/api/matches", tags=["Matches"])
+_include_router_if_exists(app, "app.api.competitions", prefix="/api/competitions", tags=["Competitions"])
+_include_router_if_exists(app, "app.api.competitions", prefix="/api/competition", tags=["Competition"])
 _include_router_if_exists(app, "app.api.auth", prefix="/api/auth", tags=["Auth"])
 _include_router_if_exists(app, "app.api.routes.hoy", prefix="/api/hoy", tags=["Hoy"])
 _include_router_if_exists(app, "app.api.routes.matches", prefix="/api/matches", tags=["Matches"])
