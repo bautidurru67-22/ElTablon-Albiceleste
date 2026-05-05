@@ -31,7 +31,11 @@ COMPETITION_MAP: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
-COMPETITION_ALIASES = {"futbol": {"liga-profesional": "liga-profesional-argentina"}}
+COMPETITION_ALIASES = {
+    "futbol": {
+        "liga-profesional": "liga-profesional-argentina",
+    }
+}
 
 
 def resolve_competition_slug(sport: str, slug: str) -> str:
@@ -101,18 +105,30 @@ async def get_competition_overview(sport: str, slug: str) -> dict:
     slug = resolve_competition_slug(sport, slug)
     attempted: list[str] = []
     source_used = None
+    error_details: list[str] = []
+
     raw = {"standings": [], "fixtures": [], "competition_label": COMPETITION_MAP.get(sport, {}).get(slug, {}).get("label", slug)}
 
-    if sport == "futbol":
-        attempted = ["ligaprofesional", "promiedos", "espn", "api_football", "sofascore", "today_cache"]
-        raw = await get_football_overview(slug)
-        if raw.get("standings") or raw.get("fixtures"):
-            source_used = raw.get("source") or "api_football"
-    elif sport == "basquet":
-        attempted = ["laliganacional", "quintocuarto", "sofascore", "365scores", "today_cache"]
-        raw = await get_lnb_overview(slug)
-        if raw.get("standings") or raw.get("fixtures"):
-            source_used = raw.get("source") or "lnb"
+    try:
+        if sport == "futbol":
+            attempted = ["ligaprofesional", "afa", "promiedos", "espn", "api_football", "sofascore", "flashscore", "today_cache"]
+            raw = await get_football_overview(slug)
+            if raw.get("standings") or raw.get("fixtures"):
+                source_used = raw.get("source") or "api_football"
+            if raw.get("error"):
+                error_details.append(f"source_error:{raw.get('error')}")
+        elif sport == "basquet":
+            attempted = ["laliganacional", "lnb", "quintocuarto", "sofascore", "365scores", "today_cache"]
+            raw = await get_lnb_overview(slug)
+            if raw.get("standings") or raw.get("fixtures"):
+                source_used = raw.get("source") or "lnb"
+            if raw.get("error"):
+                error_details.append(f"source_error:{raw.get('error')}")
+        else:
+            error_details.append(f"sport_not_supported:{sport}")
+    except Exception as e:
+        logger.exception("competition_overview provider_error sport=%s slug=%s", sport, slug)
+        error_details.append(f"provider_exception:{e}")
 
     standings = []
     for r in raw.get("standings", []):
@@ -148,12 +164,31 @@ async def get_competition_overview(sport: str, slug: str) -> dict:
         })
 
     if not fixtures:
-        fallback = await _fallback_from_today_cache(sport, slug, raw.get("competition_label") or slug)
-        if fallback:
-            fixtures = fallback
-            source_used = source_used or "today_cache"
+        try:
+            fallback = await _fallback_from_today_cache(sport, slug, raw.get("competition_label") or slug)
+            if fallback:
+                fixtures = fallback
+                source_used = source_used or "today_cache"
+        except Exception as e:
+            error_details.append(f"today_cache_exception:{e}")
 
-    logger.info("competition_overview sport=%s slug=%s source_used=%s attempted=%s standings=%s fixtures=%s", sport, slug, source_used, attempted, len(standings), len(fixtures))
+    final_error = None
+    if not standings and not fixtures:
+        detail = " | ".join(error_details) if error_details else "sin_datos_en_todas_las_fuentes"
+        final_error = f"No hay datos disponibles para esta competencia ({detail})"
+
+    logger.info(
+        "competition_overview endpoint=/api/competition/%s/%s sport=%s competition_slug=%s source_used=%s attempted=%s fixtures=%s standings=%s error=%s",
+        sport,
+        slug,
+        sport,
+        slug,
+        source_used,
+        attempted,
+        len(fixtures),
+        len(standings),
+        final_error,
+    )
 
     return {
         "sport": sport,
@@ -165,7 +200,7 @@ async def get_competition_overview(sport: str, slug: str) -> dict:
         "standings": standings,
         "fixtures": fixtures,
         "groups": [],
-        "error": None if (standings or fixtures) else "No hay datos disponibles para esta competencia",
+        "error": final_error,
     }
 
 
