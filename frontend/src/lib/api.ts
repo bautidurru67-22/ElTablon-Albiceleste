@@ -73,11 +73,12 @@ export const api = {
     fixture: (sport: string, slug: string) =>
       apiFetch<{
         sport: string
-        slug: string
         competition: string
         updated_at: string
-        count: number
-        matches: Match[]
+        source_used: string | null
+        sources_attempted: string[]
+        fixtures: Array<Record<string, unknown>>
+        error: string | null
       }>(
         `/api/competitions/${sport}/${slug}/fixture`,
         { revalidate: 30 }
@@ -86,10 +87,12 @@ export const api = {
     table: (sport: string, slug: string) =>
       apiFetch<{
         sport: string
-        slug: string
         competition: string
         updated_at: string
-        rows: Array<Record<string, unknown>>
+        source_used: string | null
+        sources_attempted: string[]
+        standings: Array<Record<string, unknown>>
+        error: string | null
       }>(
         `/api/competitions/${sport}/${slug}/table`,
         { revalidate: 30 }
@@ -99,10 +102,7 @@ export const api = {
       apiFetch<{
         sport: string
         slug: string
-        competition: string
-        updated_at: string
         rows: Array<Record<string, unknown>>
-        note?: string
       }>(
         `/api/competitions/${sport}/${slug}/scorers`,
         { revalidate: 30 }
