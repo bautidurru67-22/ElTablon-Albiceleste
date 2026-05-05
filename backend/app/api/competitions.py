@@ -25,39 +25,40 @@ def _validate(sport: str, slug: str | None = None) -> None:
 
 @router.get("/{sport}")
 async def competitions_by_sport(sport: str):
+    logger.info("competitions list endpoint sport=%s", sport)
     _validate(sport)
     return await list_competitions(sport)
 
 
 @router.get("/{sport}/{slug}")
 async def competition_overview(sport: str, slug: str):
-    logger.info("competitions_endpoint endpoint=competition_overview sport=%s competition_slug=%s", sport, slug)
+    logger.info("competition overview endpoint sport=%s slug=%s", sport, slug)
     _validate(sport, slug)
     return await get_competition_overview(sport, slug)
 
 
 @router.get("/{sport}/{slug}/fixtures")
 async def competition_fixtures_v2(sport: str, slug: str):
-    logger.info("competitions_endpoint endpoint=competition_fixtures_v2 sport=%s competition_slug=%s", sport, slug)
+    logger.info("competition fixtures endpoint sport=%s slug=%s", sport, slug)
     _validate(sport, slug)
     return await get_competition_fixture(sport, slug)
 
 
 @router.get("/{sport}/{slug}/standings")
 async def competition_standings_v2(sport: str, slug: str):
-    logger.info("competitions_endpoint endpoint=competition_standings_v2 sport=%s competition_slug=%s", sport, slug)
+    logger.info("competition standings endpoint sport=%s slug=%s", sport, slug)
     _validate(sport, slug)
     return await get_competition_table(sport, slug)
 
 
 @router.get("/{sport}/{slug}/fixture")
-async def competition_fixture(sport: str, slug: str):
+async def competition_fixture_legacy(sport: str, slug: str):
     _validate(sport, slug)
     return await get_competition_fixture(sport, slug)
 
 
 @router.get("/{sport}/{slug}/table")
-async def competition_table(sport: str, slug: str):
+async def competition_table_legacy(sport: str, slug: str):
     _validate(sport, slug)
     return await get_competition_table(sport, slug)
 
